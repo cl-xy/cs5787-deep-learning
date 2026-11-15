@@ -254,7 +254,75 @@ def load_compact_checkpoint(path):
     return model.eval().requires_grad_(False)
 
 
-def checkpoint_stats(model, path, keep=False):
+def _effective_block_evaluations(blocks):
+    """Count block calls that do real work (zero-scale damped slots are no-ops)."""
+    schedule = getattr(blocks, "schedule", None)
+    if schedule is None:
+        return len(blocks)
+    return sum(float(scale) != 0.0 for _, scale, _ in schedule)
+
+
+def estimate_dit_flops(model, sampling_steps=1, cfg_batch_size=2):
+    """Estimate DiT arithmetic FLOPs for CFG sampling.
+
+    Counts multiply-add as two FLOPs for convolution/linear projections and the
+    two attention matrix products. Elementwise operations, normalization,
+    softmax, embeddings and VAE decoding are excluded. This makes the estimate
+    deterministic and useful for relative comparisons across block schedules.
+    Returns ``None`` for custom models that do not expose the official DiT shape.
+    """
+    steps = int(sampling_steps)
+    batch = int(cfg_batch_size)
+    if steps <= 0 or batch <= 0:
+        raise ValueError("sampling_steps and cfg_batch_size must be positive")
+    try:
+        block = next(iter(model.blocks.retained.values()))
+        tokens = int(model.x_embedder.num_patches)
+        hidden = int(model.pos_embed.shape[-1])
+        patch_height, patch_width = map(int, model.x_embedder.patch_size)
+        input_channels = int(model.in_channels)
+        output_channels = int(model.out_channels)
+        mlp_hidden = int(block.mlp.fc1.out_features)
+        heads = int(model.num_heads)
+        if hidden % heads:
+            return None
+    except (AttributeError, StopIteration, TypeError, ValueError):
+        return None
+
+    # Patch projection and timestep MLP. Label lookup has no arithmetic FLOPs.
+    patch_projection = 2 * batch * tokens * hidden * input_channels * patch_height * patch_width
+    timestep_mlp = 2 * batch * (256 * hidden + hidden * hidden)
+
+    # qkv + output projections, QK^T + attention-value products, MLP, adaLN.
+    projections = 2 * batch * tokens * (3 * hidden * hidden + hidden * hidden)
+    attention = 4 * batch * tokens * tokens * hidden
+    mlp = 4 * batch * tokens * hidden * mlp_hidden
+    adaptive_norm = 2 * batch * hidden * (6 * hidden)
+    block_flops = projections + attention + mlp + adaptive_norm
+    block_calls = _effective_block_evaluations(model.blocks)
+
+    final_adaptive_norm = 2 * batch * hidden * (2 * hidden)
+    final_projection = 2 * batch * tokens * hidden * (
+        patch_height * patch_width * output_channels
+    )
+    forward = (
+        patch_projection
+        + timestep_mlp
+        + block_calls * block_flops
+        + final_adaptive_norm
+        + final_projection
+    )
+    return dict(
+        dit_forward_flops=int(forward),
+        dit_sampling_flops=int(forward * steps),
+        flops_convention=(
+            "multiply-add=2; CFG batch=2; excludes elementwise ops, normalization, "
+            "softmax, embeddings, sampler arithmetic and VAE decode"
+        ),
+    )
+
+
+def checkpoint_stats(model, path, keep=False, sampling_steps=None):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     # CPU serialization happens before the model goes to device; no hidden device copies.
@@ -264,7 +332,12 @@ def checkpoint_stats(model, path, keep=False):
                   checkpoint_bytes=path.stat().st_size,
                   parameter_bytes=sum(p.numel() * p.element_size() for p in model.parameters()),
                   unique_blocks=(len(model.blocks.retained) if hasattr(model.blocks, "retained") else len(model.blocks)),
-                  block_evaluations_per_forward=len(model.blocks))
+                  block_evaluations_per_forward=len(model.blocks),
+                  effective_block_evaluations_per_forward=_effective_block_evaluations(model.blocks))
+    if sampling_steps is not None:
+        flops = estimate_dit_flops(model, sampling_steps)
+        if flops is not None:
+            result.update(flops)
     if not keep:
         path.unlink()
     return result
@@ -373,7 +446,9 @@ def run_variant(config, pairs, output, mode="original", removed=(), alpha=0.5,
     model, vae, diffusion = _prepare(config, mode, removed, alpha, model_transform)
     try:
         schedule = model.blocks.metadata() if hasattr(model.blocks, "metadata") else dict(mode="custom")
-        stats = checkpoint_stats(model, output / "model.pt", keep_checkpoint)
+        stats = checkpoint_stats(
+            model, output / "model.pt", keep_checkpoint, config.get("sampling_steps")
+        )
         write_json(output / "manifest.json", dict(config=config, pairs=pairs,
                    schedule=schedule, stats=stats, method_metadata=method_metadata or {},
                    shared_code_sha256=shared_code_hash(),
@@ -429,6 +504,8 @@ def compare_results(root, names, metric=None):
         raise ValueError("Provide nonempty, unique variant names")
     baseline = pd.read_csv(root / "original" / "samples.csv")
     ref_manifest = json.loads((root / "original" / "manifest.json").read_text())
+    ref_stats = ref_manifest["stats"]
+    ref_latency = float(baseline["latency_s"].mean())
     all_rows, summary = [], []
     for name in names:
         folder = root / name
@@ -461,17 +538,33 @@ def compare_results(root, names, metric=None):
         samples["variant"] = name
         all_rows.append(samples)
         stats = manifest["stats"]
+        latency = float(samples["latency_s"].mean())
+        parameters = int(stats["unique_parameters"])
+        checkpoint_bytes = int(stats["checkpoint_bytes"])
+        ref_flops = ref_stats.get("dit_sampling_flops")
+        variant_flops = stats.get("dit_sampling_flops")
         summary.append(dict(variant=name, images=len(samples), lpips_mean=float(np.mean(scores)),
             lpips_std=float(np.std(scores, ddof=1)) if len(scores) > 1 else 0.0,
-            unique_parameters=stats["unique_parameters"], unique_blocks=stats["unique_blocks"],
+            unique_parameters=parameters,
+            parameter_reduction_pct=100 * (1 - parameters / ref_stats["unique_parameters"]),
+            unique_blocks=stats["unique_blocks"],
             block_evaluations_per_forward=stats["block_evaluations_per_forward"],
-            checkpoint_MiB=stats["checkpoint_bytes"] / 2**20,
+            effective_block_evaluations_per_forward=stats.get(
+                "effective_block_evaluations_per_forward", stats["block_evaluations_per_forward"]),
+            checkpoint_MiB=checkpoint_bytes / 2**20,
+            checkpoint_reduction_pct=100 * (1 - checkpoint_bytes / ref_stats["checkpoint_bytes"]),
+            dit_sampling_GFLOPs=(variant_flops / 1e9 if variant_flops is not None else None),
+            flops_reduction_pct=(100 * (1 - variant_flops / ref_flops)
+                                 if variant_flops is not None and ref_flops else None),
             device=samples["device"].iloc[0] if "device" in samples else "cuda",
             peak_GPU_allocated_GiB=(samples["peak_allocated_bytes"].max() / 2**30 if "peak_allocated_bytes" in samples else None),
             peak_GPU_reserved_GiB=(samples["peak_reserved_bytes"].max() / 2**30 if "peak_reserved_bytes" in samples else None),
             max_post_sample_MPS_allocated_GiB=(samples["mps_allocated_bytes_after_sample"].max() / 2**30 if "mps_allocated_bytes_after_sample" in samples else None),
             max_post_sample_MPS_driver_GiB=(samples["mps_driver_bytes_after_sample"].max() / 2**30 if "mps_driver_bytes_after_sample" in samples else None),
-            latency_mean_s=samples["latency_s"].mean(), latency_std_s=samples["latency_s"].std(ddof=0)))
+            latency_mean_s=latency, latency_std_s=samples["latency_s"].std(ddof=0),
+            latency_reduction_pct=100 * (1 - latency / ref_latency),
+            latency_speedup_x=ref_latency / latency,
+            throughput_images_per_s=1 / latency))
     result = pd.DataFrame(summary)
     result.to_csv(root / "results.csv", index=False)
     pd.concat(all_rows, ignore_index=True).to_csv(root / "paired_metrics.csv", index=False)

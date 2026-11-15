@@ -1,8 +1,8 @@
 # Shared experiment workflow
 
 All three members use `team_pipeline/data.py` and `team_pipeline/experiment.py`.
-Only the method builder differs. The Mac and GCP notebooks import the same code
-through their existing module names and also embed it for standalone upload.
+Only the method builder differs. The Mac notebook imports project code from
+`dit_looping` and embeds the required files for standalone use.
 For team comparisons, use the runner below: it adds protocol and environment checks.
 
 ## What stays fixed
@@ -15,7 +15,7 @@ For team comparisons, use the runner below: it adds protocol and environment che
 | Sampling | Same official ancestral sampler, CFG=4, FP32, VAE revision, checkpoint hash and source commit |
 | Method | Each member changes only a model builder or its JSON settings |
 | Evaluation | Paired LPIPS AlexNet v0.1 on saved FP32 tensors; lower means closer to baseline, not better generation quality |
-| Resources | Unique backbone parameters, actual checkpoint bytes and synchronized latency; CUDA peaks or MPS post-sample memory, labelled separately |
+| Resources | Unique parameters, checkpoint bytes, estimated DiT FLOPs, synchronized latency, throughput and baseline-relative reductions/speedup; CUDA peaks or MPS post-sample memory |
 | Outputs | Same manifests, per-image CSVs, tensor images, PNG previews, summary CSV and comparison grid |
 
 This is a training-free experiment. No training dataset is required. Calibration
@@ -27,8 +27,7 @@ The default protocol is a pilot, not sufficient for final FID claims.
 ## Setup and run
 
 Run commands from the repository root in the Python environment used by the
-notebooks. On Mac use `requirements-mac.txt`; on a CUDA machine use
-`requirements-experiment.txt` with the machine's CUDA-compatible PyTorch.
+notebooks. On Mac use `requirements-mac.txt`.
 The official source must be at the commit pinned in the protocol.
 
 ```bash
@@ -47,14 +46,13 @@ python -m team_pipeline.cli evaluate --output team_runs/pilot --split validation
 downloads the pinned VAE if needed. The first real LPIPS evaluation may download
 AlexNet weights. Preparation records the resolved device and package versions.
 Use `--device cpu`, `--device mps` or `--device cuda:0` to select explicitly.
-On GCP, pass `--repo vendor/DiT` to prepare/profile/run if using that checkout.
 
 For different damping settings, use different names (e.g. `member3_alpha025`).
 Choose settings using validation, then rerun baseline and the chosen methods with
 `--split test` and evaluate that split. The runner prevents seed overlap and
 changed input settings; the team must enforce the rule against tuning on test.
 Changing the protocol, environment or device requires a new output root.
-Compare timing on the same hardware; do not pool Mac and CUDA measurements.
+Compare timing on the same hardware and software environment.
 
 ## Your own method
 
@@ -84,19 +82,29 @@ Built-in scheduled checkpoints can be restored with `load_compact_checkpoint`.
 For another custom architecture, rebuild it with the method code before loading
 its saved `state_dict`; the generic loader does not reconstruct arbitrary methods.
 
-## Adding distribution metrics later
+## Metric interpretation and distribution metrics
 
-FID, TPIPS, class-fidelity scoring and FLOP measurement are not implemented here.
-Keep those additions in the shared evaluator when added, not in individual
-member code. FID requires a larger, class-balanced evaluation and agreed ImageNet
-reference statistics and preprocessing; LPIPS does not substitute for it.
+The summary reports parameter/checkpoint reduction, estimated DiT sampling FLOPs,
+latency reduction, speedup and throughput relative to `original`. FLOPs count a
+multiply-add as two operations and cover the CFG DiT forwards; elementwise ops,
+normalization, softmax, sampler arithmetic and VAE decoding are excluded. Latency
+remains the authoritative end-to-end compute measurement.
+
+FID and CLIP class-fidelity scoring are not reported by this pilot. Standard FID
+must compare a much larger class-balanced generated set with agreed ImageNet
+reference statistics and preprocessing; FID between a handful of compressed and
+baseline samples would only measure distribution drift and is strongly biased.
+CLIP score additionally needs a pinned CLIP checkpoint and an agreed mapping from
+ImageNet IDs to text prompts. Add both to the shared evaluator and protocol once
+those inputs and an adequate sample budget are fixed. LPIPS measures paired drift
+from the baseline and does not substitute for either absolute quality metric.
 
 ## Tests
 
 ```bash
-DIT_TEST_REPO="$PWD/third_party/DiT" python -m pytest --import-mode=importlib -q tests tests_local tests_team
+DIT_TEST_REPO="$PWD/third_party/DiT" python -m pytest --import-mode=importlib -q tests tests_team
 ```
 
 Tests use tiny models and synthetic images without pretrained downloads. MPS
-checks run only when the process can access MPS. CUDA execution requires a GPU
-machine. A passing test suite verifies implementation contracts, not image quality.
+checks run only when the process can access MPS. A passing test suite verifies
+implementation contracts, not image quality.

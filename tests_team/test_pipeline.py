@@ -74,6 +74,10 @@ def test_shared_runner_and_evaluator_reject_incomplete_or_mismatched_runs(tmp_pa
     assert result.lpips_mean.eq(0).all()
     assert result.images.eq(2).all()
     assert result.peak_GPU_allocated_GiB.isna().all()
+    assert result.parameter_reduction_pct.eq(0).all()
+    assert result.checkpoint_reduction_pct.eq(0).all()
+    assert result.latency_speedup_x.gt(0).all()
+    assert result.throughput_images_per_s.gt(0).all()
     assert (tmp_path / "paired_metrics.csv").exists()
     with pytest.raises(FileExistsError):
         exp.run_variant(config, pairs, tmp_path / "member1")
@@ -112,11 +116,42 @@ def test_custom_builder_keeps_shared_preparation_and_freezes_model(monkeypatch):
     assert loaded_vae is vae and diffusion == "sampler"
 
 
-def test_notebook_bootstraps_ship_identical_shared_files():
+def test_dit_flop_estimate_tracks_effective_schedule():
+    class Block(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.mlp = SimpleNamespace(fc1=SimpleNamespace(out_features=16))
+
+        def forward(self, x, c):
+            return x
+
+    class Model(nn.Module):
+        def __init__(self, mode="original", alpha=.5):
+            super().__init__()
+            self.in_channels, self.out_channels, self.num_heads = 4, 8, 2
+            self.pos_embed = nn.Parameter(torch.zeros(1, 4, 8))
+            self.x_embedder = SimpleNamespace(num_patches=4, patch_size=(2, 2))
+            removed = () if mode == "original" else (1,)
+            self.blocks = exp.ScheduledBlocks([Block(), Block(), Block()], removed, mode, alpha)
+
+    original = Model()
+    removal = Model("removal")
+    damped_zero = Model("damped", 0)
+    full = exp.estimate_dit_flops(original, sampling_steps=5)
+    reduced = exp.estimate_dit_flops(removal, sampling_steps=5)
+    no_op = exp.estimate_dit_flops(damped_zero, sampling_steps=5)
+    assert full["dit_sampling_flops"] == 5 * full["dit_forward_flops"]
+    assert reduced["dit_sampling_flops"] < full["dit_sampling_flops"]
+    assert no_op["dit_sampling_flops"] == reduced["dit_sampling_flops"]
+    with pytest.raises(ValueError, match="positive"):
+        exp.estimate_dit_flops(original, sampling_steps=0)
+
+
+def test_mac_notebook_bootstrap_ships_identical_shared_files():
     import ast
     from pathlib import Path
     root = Path(__file__).resolve().parents[1]
-    for name in ["DiT_Layer_Looping_GCP.ipynb", "DiT_Layer_Looping_Mac.ipynb"]:
+    for name in ["DiT_Layer_Looping_Mac.ipynb"]:
         notebook = json.loads((root / name).read_text())
         found = False
         for cell in notebook["cells"]:
