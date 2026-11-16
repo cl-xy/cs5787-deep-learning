@@ -76,7 +76,8 @@ def main(argv=None):
         elif name == "profile":
             sub.add_argument("--remove-count", type=int, default=2)
         elif name == "run":
-            sub.add_argument("--split", choices=["validation", "test"], default="validation")
+            sub.add_argument("--split", choices=["validation", "test", "fid"], default="validation")
+            sub.add_argument("--limit", type=int, help="Use only the first N pairs of the split (smoke runs)")
             sub.add_argument("--method", required=True, help="original/removal/loop/damped or module:function")
             sub.add_argument("--name", required=True, help="Unique folder name; baseline must be original")
             sub.add_argument("--removed", type=int, nargs="+", help="Otherwise use profile/selection.json")
@@ -84,11 +85,28 @@ def main(argv=None):
             sub.add_argument("--method-config", help="JSON file passed to a custom method")
             sub.add_argument("--keep-checkpoint", action="store_true")
         else:
-            sub.add_argument("--split", choices=["validation", "test"], default="validation")
+            sub.add_argument("--split", choices=["validation", "test", "fid"], default="validation")
             sub.add_argument("--names", nargs="+", required=True)
+    for name in ["clip", "fid"]:
+        sub = subs.add_parser(name, help=f"{name.upper()} metric on finished fid-split runs")
+        sub.add_argument("--output", required=True, help="Shared run directory")
+        sub.add_argument("--split", choices=["validation", "test", "fid"], default="fid")
+        sub.add_argument("--names", nargs="+", required=True)
+        sub.add_argument("--device", default="cpu", help="Device for the metric network only")
+        if name == "fid":
+            sub.add_argument("--reference", help="ADM ImageNet-256 reference .npz with mu/sigma")
     args = parser.parse_args(argv)
     if args.command == "prepare":
         prepare(args)
+        return
+    if args.command in {"clip", "fid"}:
+        from . import metrics
+        root = Path(args.output) / args.split
+        if args.command == "clip":
+            print(metrics.clip_report(root, args.names).to_string(index=False))
+        else:
+            print(metrics.fid_report(root, args.names, reference_stats=args.reference,
+                                     device=args.device).to_string(index=False))
         return
     if args.command == "evaluate":
         root = Path(args.output) / args.split
@@ -127,7 +145,14 @@ def main(argv=None):
         raise ValueError("Unknown method")
     elif args.removed or args.method_config:
         raise ValueError("Original baseline cannot have method settings")
-    run_variant(config, protocol["splits"][args.split], root / args.split / args.name,
+    pairs = protocol["splits"].get(args.split)
+    if pairs is None:
+        raise ValueError(f"Protocol has no '{args.split}' split; prepare a root from the updated team_protocol.json")
+    if args.limit is not None:
+        if args.limit < 2:
+            raise ValueError("--limit must be at least 2")
+        pairs = pairs[:args.limit]
+    run_variant(config, pairs, root / args.split / args.name,
                 mode=mode, removed=removed, alpha=args.alpha, model_transform=transform,
                 method_metadata=metadata, keep_checkpoint=args.keep_checkpoint)
 

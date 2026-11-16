@@ -9,7 +9,7 @@ For team comparisons, use the runner below: it adds protocol and environment che
 
 | Component | Shared rule |
 | --- | --- |
-| Input | `team_protocol.json`: ImageNet labels and disjoint calibration/validation/test seeds |
+| Input | `team_protocol.json`: ImageNet labels and disjoint calibration/validation/test seeds, plus a 1,000-image `fid` split for final FID/CLIP |
 | Default pilot | 16 calibration, 16 validation, 64 test images across 8 classes; 50 sampling steps |
 | Preprocessing | CPU FP32 initial noise; 256x256 RGB decoded tensors in [-1,1]; no extra crops, resizing or per-image normalization |
 | Sampling | Same official ancestral sampler, CFG=4, FP32, VAE revision, checkpoint hash and source commit |
@@ -90,19 +90,59 @@ multiply-add as two operations and cover the CFG DiT forwards; elementwise ops,
 normalization, softmax, sampler arithmetic and VAE decoding are excluded. Latency
 remains the authoritative end-to-end compute measurement.
 
-FID and CLIP class-fidelity scoring are not reported by this pilot. Standard FID
-must compare a much larger class-balanced generated set with agreed ImageNet
-reference statistics and preprocessing; FID between a handful of compressed and
-baseline samples would only measure distribution drift and is strongly biased.
-CLIP score additionally needs a pinned CLIP checkpoint and an agreed mapping from
-ImageNet IDs to text prompts. Add both to the shared evaluator and protocol once
-those inputs and an adequate sample budget are fixed. LPIPS measures paired drift
-from the baseline and does not substitute for either absolute quality metric.
+FID-1K and CLIP score are computed from the `fid` split (below), not from the small
+validation/test pilot sets. LPIPS measures paired drift from the baseline and does
+not substitute for either absolute quality metric.
+
+## FID-1K and CLIP score (`fid` split)
+
+`team_protocol.json` has a `fid` split: one image for each of the 1,000 ImageNet
+classes (labels 0-999, seeds 10096-11095, disjoint from every other split). It is
+used only for final FID/CLIP, never to choose settings.
+
+**Everyone must re-run `prepare` on a NEW output root.** Adding the split changed
+`data.py` and `team_protocol.json`, so the shared-code and protocol hashes changed and
+older roots are rejected on purpose. Results from old roots are not comparable.
+
+Extra requirements (already in `requirements-mac.txt`): `transformers>=4.50,<5` for
+CLIP and `torch-fidelity` for Inception features. Keep `huggingface-hub<1`, which
+`diffusers` needs; `transformers` 5.x pulls in hub 2.x and breaks that pin.
+
+```bash
+# 1000 images per variant, about 2.7 h on a Mac at batch size 1. --limit N runs a smoke subset.
+python -m team_pipeline.cli run --output team_runs/main --split fid --method original --name original
+python -m team_pipeline.cli run --output team_runs/main --split fid --method removal --removed 12 15 --name rm_12_15
+python -m team_pipeline.cli clip --output team_runs/main --split fid --names original rm_12_15
+python -m team_pipeline.cli fid  --output team_runs/main --split fid --names original rm_12_15 \
+    --reference checkpoints/reference/VIRTUAL_imagenet256_labeled.npz
+```
+
+- `clip`: CLIP ViT-B/32 cosine similarity with "a photo of a {class name}" (torchvision
+  ImageNet names). `clip_score` is 100 x mean(max(cos, 0)).
+- `fid`: TF-FID-compatible Inception features (torch-fidelity) of the saved tensors.
+  Reports `fid_vs_original` (distance to the unmodified model's own 1,000 images) and,
+  with `--reference`, `fid_vs_adm_imagenet256` against the ADM ImageNet-256 reference
+  statistics (2 GB, `https://openaipublic.blob.core.windows.net/diffusion/jul-2021/ref_batches/imagenet/256/VIRTUAL_imagenet256_labeled.npz`).
+- With 1,000 images the 2048-d covariance is rank deficient and absolute FID is biased
+  high. Call it FID-1K and compare variants only, never against published FID-50K.
+- Both commands write `fid.json` / `clip.json` per variant and refuse variants whose
+  configuration, runtime or shared code differs from `original`.
+- `run --split fid` has no resume: a crash loses that variant. Existing folders are
+  never overwritten.
+
+## Looped-block compression method (`loop_compression/`)
+
+Training-free looping of a middle window of DiT blocks (Chen et al., arXiv 2605.23872).
+Run order, all on validation until configs are frozen:
+`python -m loop_compression.sensitivity blocks|windows --output ROOT`, then
+`python -m loop_compression.drive validate|freeze --output ROOT`, then
+`python -m loop_compression.final test|timing|fid|report --output ROOT`.
+Details are in the module docstrings; `final` refuses to run without `frozen_configs.json`.
 
 ## Tests
 
 ```bash
-DIT_TEST_REPO="$PWD/third_party/DiT" python -m pytest --import-mode=importlib -q tests tests_team
+DIT_TEST_REPO="$PWD/third_party/DiT" python -m pytest --import-mode=importlib -q tests tests_team tests_loop
 ```
 
 Tests use tiny models and synthetic images without pretrained downloads. MPS

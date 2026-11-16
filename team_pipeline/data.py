@@ -28,22 +28,37 @@ def validate_pairs(pairs):
     return result
 
 
+REQUIRED_SPLITS = ("calibration", "validation", "test")
+OPTIONAL_SPLITS = ("fid",)  # final FID/CLIP only; never used to select settings
+
+
 def make_protocol(labels=(207, 360, 387, 974, 88, 979, 417, 279),
-                  calibration_per_class=2, validation_per_class=2, test_per_class=8):
-    """Balanced pilot with three disjoint seed sets; all members use this file."""
+                  calibration_per_class=2, validation_per_class=2, test_per_class=8,
+                  fid_per_class=0):
+    """Balanced pilot with disjoint seed sets; all members use this file.
+
+    fid_per_class > 0 appends a ``fid`` split over ALL 1000 ImageNet classes
+    (class-balanced, seeds continuing after the test split).
+    """
     labels = list(labels)
     if not labels or len(set(labels)) != len(labels):
         raise ValueError("Use nonempty, unique class labels")
     counts = [calibration_per_class, validation_per_class, test_per_class]
     if any(isinstance(n, bool) or not isinstance(n, Integral) or n <= 0 for n in counts):
         raise ValueError("Samples per class must be positive integers")
+    if isinstance(fid_per_class, bool) or not isinstance(fid_per_class, Integral) or fid_per_class < 0:
+        raise ValueError("fid_per_class must be a nonnegative integer")
     splits = {}
     next_seed = 10_000
-    for name, count in zip(["calibration", "validation", "test"], counts):
+    for name, count in zip(REQUIRED_SPLITS, counts):
         pairs = [(label, next_seed + i) for i, label in
                  enumerate(label for _ in range(count) for label in labels)]
         splits[name] = [list(pair) for pair in validate_pairs(pairs)]
         next_seed += len(pairs)
+    if fid_per_class:
+        pairs = [(label, next_seed + i) for i, label in
+                 enumerate(label for _ in range(fid_per_class) for label in range(1000))]
+        splits["fid"] = [list(pair) for pair in validate_pairs(pairs)]
     return dict(version=1, settings=dict(image_size=256, architecture="DiT-XL/2",
                 sampling_steps=50, cfg_scale=4.0, sampler="official ancestral p_sample_loop",
                 dtype="float32", tf32=False, deterministic_algorithms=True,
@@ -57,8 +72,11 @@ def make_protocol(labels=(207, 360, 387, 974, 88, 979, 417, 279),
 
 def load_protocol(path):
     protocol = json.loads(Path(path).read_text())
-    if protocol.get("version") != 1 or set(protocol.get("splits", {})) != {"calibration", "validation", "test"}:
-        raise ValueError("Expected protocol version 1 with calibration, validation and test splits")
+    names = set(protocol.get("splits", {}))
+    if (protocol.get("version") != 1 or not set(REQUIRED_SPLITS) <= names
+            or names - set(REQUIRED_SPLITS) - set(OPTIONAL_SPLITS)):
+        raise ValueError("Expected protocol version 1 with calibration, validation and test "
+                         "splits, plus an optional fid split")
     all_seeds = set()
     for name, pairs in protocol["splits"].items():
         pairs = validate_pairs(pairs)
