@@ -38,9 +38,15 @@ python -m team_pipeline.cli run --output team_runs/pilot --split validation --me
 python -m team_pipeline.cli run --output team_runs/pilot --split validation --method removal --name member1_removal
 python -m team_pipeline.cli run --output team_runs/pilot --split validation --method loop --name member2_loop
 python -m team_pipeline.cli run --output team_runs/pilot --split validation --method damped --name member3_damped --alpha 0.5
+python -m team_pipeline.cli run --output team_runs/pilot --split validation --method xsa_reuse --name member4_xsa_reuse
 
-python -m team_pipeline.cli evaluate --output team_runs/pilot --split validation --names original member1_removal member2_loop member3_damped
+python -m team_pipeline.cli evaluate --output team_runs/pilot --split validation --names original member1_removal member2_loop member3_damped member4_xsa_reuse
 ```
+
+To skip calibration and freeze explicit blocks instead of `profile`, run
+`python -m team_pipeline.cli select --output team_runs/pilot --removed 4 7` (zero-based).
+A run's selection is frozen; a different selection needs a new output root.
+`--alpha` applies only to `damped` (default 0.5); the other built-ins always use 1.0.
 
 `prepare` downloads the checkpoint if missing and checks its hash. Generation also
 downloads the pinned VAE if needed. The first real LPIPS evaluation may download
@@ -53,6 +59,32 @@ Choose settings using validation, then rerun baseline and the chosen methods wit
 changed input settings; the team must enforce the rule against tuning on test.
 Changing the protocol, environment or device requires a new output root.
 Compare timing on the same hardware and software environment.
+
+## XSA reuse (`--method xsa_reuse`)
+
+Like `loop`, each removed slot reruns the nearest preceding retained block, so the
+unique parameters equal those of `removal`. At those replacement slots only, the
+block's attention uses exclusive self-attention: each token's per-head attention
+output has its own value direction projected out before the output projection
+(`team_pipeline/xsa.py`). Ordinary block calls are unchanged; the rest of the
+DiT block (adaLN, gates, residuals, MLP) runs as usual. The schedule metadata in
+each manifest marks the XSA slots.
+
+Optional extra metrics on a finished, evaluated split (`team_pipeline/extended_metrics.py`):
+
+```bash
+pip install clean-fid tpips "scipy<1.18"   # only the ones you enable
+python -m team_pipeline.cli extended --output team_runs/pilot --split validation \
+    --names original member1_removal member2_loop member3_damped member4_xsa_reuse \
+    --fid-reference-dir /path/to/real_images --fid-reference-description "ImageNet val, 8 classes, 256 center crop" \
+    --tpips-factors overall shape texture
+```
+
+Without `--fid-reference-dir` and `--tpips-factors` it only copies the LPIPS results.
+Outputs go to `results_extended.csv`, `paired_metrics_extended.csv` and
+`evaluation_extended.json`; the LPIPS files are not modified. Clean-FID here uses a
+folder of real images; for the final FID-500 study use the `fid` command below.
+The Colab entry point for this comparison is Part X of `DiT_Layer_Looping_GCP.ipynb`.
 
 ## Your own method
 

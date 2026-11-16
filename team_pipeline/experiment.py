@@ -1,6 +1,6 @@
 """Shared input, sampling, profiling and evaluation for CPU, MPS and CUDA.
 
-Both notebooks import this implementation. Keep method changes in methods.py
+The notebook and CLI import this implementation. Keep method changes in methods.py
 or supply model_transform to run_variant.
 """
 from __future__ import annotations
@@ -29,7 +29,7 @@ from .data import validate_pairs, preprocess_image, initial_latent
 def shared_code_hash():
     """Fingerprint shared processing, metrics and built-in schedules."""
     digest = hashlib.sha256()
-    for name in ["data.py", "experiment.py", "methods.py"]:
+    for name in ["data.py", "experiment.py", "methods.py", "xsa.py"]:
         digest.update(name.encode())
         digest.update(Path(__file__).with_name(name).read_bytes())
     return digest.hexdigest()
@@ -207,7 +207,7 @@ def summarize_profile(frame, output, remove_count=4):
         scores[stage] = matrix.loc[:, columns].mean(axis=1)
     scores.to_csv(output / "block_scores.csv", index_label="block")
     matrix.to_csv(output / "feature_change_matrix.csv")
-    write_json(output / "selection.json", dict(removed=removed, protected=[0, depth - 1],
+    write_json(output / "selection.json", dict(removed=removed, protected=[0, depth - 1], index_base=0,
         scoring="mean of per-sample normalized L1 changes, equally averaged over CFG branches and timesteps"))
     fig, axes = plt.subplots(1, 2, figsize=(15, 7), constrained_layout=True)
     for ax, values, title in zip(axes, [matrix.to_numpy(), np.log10(matrix.to_numpy().clip(1e-12))],
@@ -225,6 +225,35 @@ def summarize_profile(frame, output, remove_count=4):
     fig.savefig(output / "feature_change_heatmap.png", dpi=180)
     plt.close(fig)
     return removed, scores
+
+
+def load_fixed_selection(root):
+    """Read ``<root>/profile/selection.json`` (calibrated or fixed); indices are zero based."""
+    selection = json.loads((Path(root) / "profile" / "selection.json").read_text())
+    if selection.get("index_base", 0) != 0:
+        raise ValueError("Expected zero-based block indices")
+    return selection
+
+
+def write_fixed_selection(root, removed=(4, 7), depth=28):
+    """Freeze an explicit block selection for a run, skipping calibration inference.
+
+    Every built-in compressed method (removal/loop/damped/xsa_reuse) then uses the
+    same blocks. An existing selection is never replaced: create a new run instead.
+    """
+    removed = list(removed)
+    if (not removed or any(type(i) is not int for i in removed)
+            or removed != sorted(set(removed)) or any(i <= 0 or i >= depth for i in removed)):
+        raise ValueError(f"Use sorted, unique block indices from 1 through {depth - 1}")
+    path = Path(root) / "profile" / "selection.json"
+    if path.exists():
+        selection = load_fixed_selection(root)
+        if selection["removed"] != removed:
+            raise ValueError("Selection is frozen for this run; create a new run")
+        return selection
+    selection = dict(removed=removed, index_base=0, scoring="explicitly configured fixed selection")
+    write_json(path, selection)
+    return selection
 
 
 def load_model(checkpoint, removed=(), mode="original", alpha=0.5):
@@ -246,10 +275,15 @@ def load_compact_checkpoint(path):
     meta = payload["schedule"]
     if meta.get("mode") == "custom":
         raise ValueError("Custom checkpoints require the corresponding method builder before loading state_dict")
+    if meta.get("index_base", 0) != 0:
+        raise ValueError("Expected zero-based block indices")
     # Avoid allocating a second full set of initialized XL weights in unified memory.
     with torch.device("meta"):
         model = DiT_XL_2(input_size=32, num_classes=1000)
-    model.blocks = ScheduledBlocks(model.blocks, meta["removed"], meta["mode"], meta["alpha"])
+    model.blocks = ScheduledBlocks(model.blocks, meta["removed"], meta["mode"], meta["alpha"],
+                                   xsa_eps=meta.get("xsa_eps", 1e-8))
+    if "retained" in meta and meta["retained"] != model.blocks.metadata()["retained"]:
+        raise ValueError("Checkpoint original-index mapping is inconsistent")
     model.load_state_dict(payload["state_dict"], strict=True, assign=True)
     return model.eval().requires_grad_(False)
 
