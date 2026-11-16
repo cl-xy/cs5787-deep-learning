@@ -90,15 +90,17 @@ multiply-add as two operations and cover the CFG DiT forwards; elementwise ops,
 normalization, softmax, sampler arithmetic and VAE decoding are excluded. Latency
 remains the authoritative end-to-end compute measurement.
 
-FID-1K and CLIP score are computed from the `fid` split (below), not from the small
+FID-N and CLIP score are computed from a deterministic subset of the `fid` split (below), not from the small
 validation/test pilot sets. LPIPS measures paired drift from the baseline and does
 not substitute for either absolute quality metric.
 
-## FID-1K and CLIP score (`fid` split)
+## FID-N and CLIP score (`fid` split)
 
 `team_protocol.json` has a `fid` split: one image for each of the 1,000 ImageNet
 classes (labels 0-999, seeds 10096-11095, disjoint from every other split). It is
-used only for final FID/CLIP, never to choose settings.
+used only for final FID/CLIP, never to choose settings. The final 500-image study
+uses `--stride 2 --limit 500`, which applies stride before limit and therefore
+selects protocol entries 0, 2, ..., 998: 500 classes spread across ImageNet.
 
 **Everyone must re-run `prepare` on a NEW output root.** Adding the split changed
 `data.py` and `team_protocol.json`, so the shared-code and protocol hashes changed and
@@ -109,24 +111,35 @@ CLIP and `torch-fidelity` for Inception features. Keep `huggingface-hub<1`, whic
 `diffusers` needs; `transformers` 5.x pulls in hub 2.x and breaks that pin.
 
 ```bash
-# 1000 images per variant, about 2.7 h on a Mac at batch size 1. --limit N runs a smoke subset.
-python -m team_pipeline.cli run --output team_runs/main --split fid --method original --name original
-python -m team_pipeline.cli run --output team_runs/main --split fid --method removal --removed 12 15 --name rm_12_15
-python -m team_pipeline.cli clip --output team_runs/main --split fid --names original rm_12_15
-python -m team_pipeline.cli fid  --output team_runs/main --split fid --names original rm_12_15 \
+# Final FID-500/CLIP study: original, frozen budget-4 loop and equal-parameter removal.
+# On a Mac, generation takes about 4.2 hours. Keep the machine awake.
+caffeinate -i python -m loop_compression.final fid --output team_runs/main --budget 4 \
+    --stride 2 --limit 500 \
     --reference checkpoints/reference/VIRTUAL_imagenet256_labeled.npz
+python -m loop_compression.final report --output team_runs/main
 ```
+
+For direct runner calls, `--stride N` selects every Nth protocol pair before
+`--limit` truncates the selection. The exact selected pairs are stored in each
+manifest. `loop_compression.final` skips an existing variant only if its manifest,
+`samples.csv` rows and saved tensors form the complete expected set. A partial or
+mismatched folder stops the command with its path. Move that folder aside manually
+after inspecting it, then rerun; no output is deleted automatically.
 
 - `clip`: CLIP ViT-B/32 cosine similarity with "a photo of a {class name}" (torchvision
   ImageNet names). `clip_score` is 100 x mean(max(cos, 0)).
 - `fid`: TF-FID-compatible Inception features (torch-fidelity) of the saved tensors.
-  Reports `fid_vs_original` (distance to the unmodified model's own 1,000 images) and,
-  with `--reference`, `fid_vs_adm_imagenet256` against the ADM ImageNet-256 reference
-  statistics (2 GB, `https://openaipublic.blob.core.windows.net/diffusion/jul-2021/ref_batches/imagenet/256/VIRTUAL_imagenet256_labeled.npz`).
-- With 1,000 images the 2048-d covariance is rank deficient and absolute FID is biased
-  high. Call it FID-1K and compare variants only, never against published FID-50K.
+  Reports `fid_vs_original` (distance to the unmodified model's corresponding images)
+  and, with `--reference`, `fid_vs_adm_imagenet256` against the ADM ImageNet-256
+  reference statistics (2 GB, `https://openaipublic.blob.core.windows.net/diffusion/jul-2021/ref_batches/imagenet/256/VIRTUAL_imagenet256_labeled.npz`).
+- The metric name records the actual count, such as `FID-500 (relative use only)`.
+  At 500 images, the 2048-d covariance is rank deficient and absolute FID is biased
+  upward. Use FID versus the original's corresponding 500 images as the main result.
+  Treat FID versus ADM's 50K statistics as secondary, and never compare it with
+  published FID-50K.
 - Both commands write `fid.json` / `clip.json` per variant and refuse variants whose
-  configuration, runtime or shared code differs from `original`.
+  configuration, runtime, shared code or selected pairs differ from `original`.
+  Their JSON includes the actual image count and distinct class count.
 - `run --split fid` has no resume: a crash loses that variant. Existing folders are
   never overwritten.
 

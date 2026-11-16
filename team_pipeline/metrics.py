@@ -1,12 +1,13 @@
-"""Generative metrics for the final comparison: CLIP score and FID-1K.
+"""Generative metrics for final comparisons: CLIP score and FID-N.
 
 These read the saved FP32 image tensors of finished runs; they never generate
 images and never touch timing. Heavy dependencies (transformers, torch-fidelity)
 are imported lazily so the sampling pipeline does not require them.
 
-FID here uses ~1,000 class-balanced images, so absolute values are biased high and
-are NOT comparable with published FID-50K. Use it only to compare variants made
-with the same protocol, and say "FID-1K".
+FID uses the selected class subset recorded in each run manifest. When N is below
+the 2,048-dimensional Inception feature size, covariance is rank deficient and
+absolute values are biased high. Compare only variants made from the same pairs;
+do not compare these values with published FID-50K.
 """
 from __future__ import annotations
 
@@ -50,6 +51,10 @@ def load_variant_images(root, name):
     expected = pd.DataFrame([(i, label, seed) for i, (label, seed) in enumerate(pairs)],
                             columns=["index", "label", "seed"])
     if not samples[["index", "label", "seed"]].equals(expected):
+        raise ValueError(f"Incomplete or inconsistent run: {name}")
+    expected_tensors = {f"image_{i:04d}.pt" for i in range(len(pairs))}
+    actual_tensors = {path.name for path in folder.glob("image_*.pt")}
+    if actual_tensors != expected_tensors:
         raise ValueError(f"Incomplete or inconsistent run: {name}")
     size = manifest["config"]["image_size"]
     images = torch.cat([
@@ -134,10 +139,11 @@ def fid_report(root, names, reference_stats=None, extractor=None, device="cpu", 
         names = ["original"] + names
     reference_manifest = json.loads((root / "original" / "manifest.json").read_text())
     extractor = extractor if extractor is not None else load_inception(device)
-    features = {}
+    features, pairs_by_name = {}, {}
     for name in names:
         cache = root / name / "inception_features.npy"
         images, pairs, manifest = load_variant_images(root, name)
+        pairs_by_name[name] = pairs
         check_same_setup(reference_manifest, manifest, name)
         if cache.exists() and len(np.load(cache)) == len(images):
             features[name] = np.load(cache)
@@ -147,7 +153,11 @@ def fid_report(root, names, reference_stats=None, extractor=None, device="cpu", 
     adm = load_reference_statistics(reference_stats) if reference_stats else None
     rows = []
     for name in names:
-        row = dict(variant=name, images=len(features[name]), metric="FID-1K-style (relative use only)",
+        image_count, feature_dimension = features[name].shape
+        row = dict(variant=name, images=image_count,
+                   class_count=len({label for label, _ in pairs_by_name[name]}),
+                   metric=f"FID-{image_count} (relative use only)",
+                   rank_deficient=bool(image_count < feature_dimension),
                    fid_vs_original=fid_from_features(features[name], features["original"]))
         if adm is not None:
             row["fid_vs_adm_imagenet256"] = frechet_distance(
@@ -215,7 +225,8 @@ def clip_report(root, names, encode_image=None, encode_text=None, info=None,
         cosine = clip_scores_from_embeddings(image_emb, text_emb).numpy()
         pd.DataFrame(dict(index=range(len(pairs)), label=labels, cosine=cosine)).to_csv(
             root / name / "clip_scores.csv", index=False)
-        row = dict(variant=name, images=len(cosine), clip_cosine_mean=float(cosine.mean()),
+        row = dict(variant=name, images=len(cosine), class_count=len(set(labels)),
+                   clip_cosine_mean=float(cosine.mean()),
                    clip_cosine_std=float(cosine.std(ddof=1)) if len(cosine) > 1 else 0.0,
                    clip_score=float(100 * np.clip(cosine, 0, None).mean()),
                    prompt=PROMPT, **(info or {}))

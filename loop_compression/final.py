@@ -20,6 +20,8 @@ import sys
 
 import pandas as pd
 
+from team_pipeline.cli import select_pairs
+from team_pipeline.data import load_protocol
 from .drive import build_command
 
 ROLES = ("loop", "strongest_removal")           # arms compared in the headline results
@@ -63,25 +65,76 @@ def write_frozen_configs(output, entries):
     return folder
 
 
-def plan_commands(output, entries, split, config_dir, limit=None):
+def plan_commands(output, entries, split, config_dir, limit=None, stride=1):
     """(name, command) for the baseline and every frozen entry on ``split``."""
     if split not in {"test", "fid"}:
         raise ValueError("final runs use the test or fid split")
+    subset = [*( ["--limit", str(limit)] if limit else []),
+              *( ["--stride", str(stride)] if stride != 1 else [])]
     jobs = [("original", [sys.executable, "-m", "team_pipeline.cli", "run", "--output", str(output),
-                          "--split", split, "--method", "original", "--name", "original",
-                          *(["--limit", str(limit)] if limit else [])])]
+                          "--split", split, "--method", "original", "--name", "original", *subset])]
     for e in entries:
-        jobs.append((e["name"], build_command(output, e, config_dir, split, limit)))
+        jobs.append((e["name"], build_command(output, e, config_dir, split,
+                                               limit=limit, stride=stride)))
     return jobs
 
 
-def run_jobs(output, split, jobs, dry_run=False):
+def selected_split_pairs(output, split, stride=1, limit=None):
+    """Load and select the exact protocol pairs expected from every final run."""
+    protocol = load_protocol(Path(output) / "protocol.json")
+    pairs = protocol["splits"].get(split)
+    if pairs is None:
+        raise ValueError(f"Protocol has no '{split}' split")
+    return select_pairs(pairs, stride=stride, limit=limit)
+
+
+def folder_state(folder, expected_pairs):
+    """Return missing/complete/partial/mismatched for one generated variant."""
+    folder = Path(folder)
+    if not folder.exists():
+        return "missing"
+    manifest_path = folder / "manifest.json"
+    samples_path = folder / "samples.csv"
+    if not manifest_path.exists() or not samples_path.exists():
+        return "partial"
+    try:
+        manifest = json.loads(manifest_path.read_text())
+        actual_pairs = [list(pair) for pair in manifest["pairs"]]
+        expected_pairs = [list(pair) for pair in expected_pairs]
+        samples = pd.read_csv(samples_path)
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError, pd.errors.ParserError):
+        return "mismatched"
+    if actual_pairs != expected_pairs:
+        return "mismatched"
+    columns = ["index", "label", "seed"]
+    if not set(columns) <= set(samples.columns):
+        return "mismatched"
+    expected_rows = pd.DataFrame(
+        [(i, label, seed) for i, (label, seed) in enumerate(expected_pairs)], columns=columns)
+    actual_rows = samples[columns]
+    if len(actual_rows) < len(expected_rows) and actual_rows.equals(expected_rows.iloc[:len(actual_rows)]):
+        return "partial"
+    if not actual_rows.equals(expected_rows):
+        return "mismatched"
+    expected_images = {f"image_{i:04d}.pt" for i in range(len(expected_pairs))}
+    actual_images = {path.name for path in folder.glob("image_*.pt")}
+    if actual_images == expected_images:
+        return "complete"
+    return "partial" if actual_images < expected_images else "mismatched"
+
+
+def run_jobs(output, split, jobs, expected_pairs, dry_run=False):
     root = Path(output) / split
     for index, (name, command) in enumerate(jobs, 1):
-        if (root / name / "samples.csv").exists() and len(list((root / name).glob("image_*.pt"))):
-            done = len(pd.read_csv(root / name / "samples.csv"))
-            print(f"[{index}/{len(jobs)}] {name}: exists ({done} images), skipping")
+        folder = root / name
+        state = folder_state(folder, expected_pairs)
+        if state == "complete":
+            print(f"[{index}/{len(jobs)}] {name}: complete ({len(expected_pairs)} images), skipping")
             continue
+        if state != "missing":
+            raise RuntimeError(
+                f"Existing result folder is {state}: {folder}. "
+                "Move it aside before rerunning; no files were changed.")
         print(f"[{index}/{len(jobs)}] {split}/{name}", flush=True)
         if dry_run:
             print("   ", " ".join(command))
@@ -92,8 +145,10 @@ def run_jobs(output, split, jobs, dry_run=False):
 def run_test(args):
     entries = load_frozen(args.output, args.budgets, extras=args.extras)
     config_dir = write_frozen_configs(args.output, entries)
-    jobs = plan_commands(args.output, entries, "test", config_dir, args.limit)
-    run_jobs(args.output, "test", jobs, args.dry_run)
+    expected_pairs = selected_split_pairs(args.output, "test", args.stride, args.limit)
+    jobs = plan_commands(args.output, entries, "test", config_dir,
+                         limit=args.limit, stride=args.stride)
+    run_jobs(args.output, "test", jobs, expected_pairs, args.dry_run)
     if not args.dry_run:
         names = [name for name, _ in jobs]
         subprocess.run([sys.executable, "-m", "team_pipeline.cli", "evaluate", "--output", str(args.output),
@@ -103,8 +158,10 @@ def run_test(args):
 def run_fid(args):
     entries = load_frozen(args.output, [args.budget], extras=False)
     config_dir = write_frozen_configs(args.output, entries)
-    jobs = plan_commands(args.output, entries, "fid", config_dir, args.limit)
-    run_jobs(args.output, "fid", jobs, args.dry_run)
+    expected_pairs = selected_split_pairs(args.output, "fid", args.stride, args.limit)
+    jobs = plan_commands(args.output, entries, "fid", config_dir,
+                         limit=args.limit, stride=args.stride)
+    run_jobs(args.output, "fid", jobs, expected_pairs, args.dry_run)
     if args.dry_run:
         return
     names = [name for name, _ in jobs]
@@ -193,6 +250,11 @@ def build_summary(test_results, frozen_entries, fid_rows=None, clip_rows=None, t
     table["unique_parameters_M"] = table.unique_parameters / 1e6
     for extra, key in [(fid_rows, "fid"), (clip_rows, "clip"), (timing, "timing")]:
         if extra is not None and len(extra):
+            extra = extra.copy()
+            metadata = {column: f"{key}_{column}" for column in
+                        ("images", "class_count", "metric", "rank_deficient")
+                        if column in extra.columns}
+            extra = extra.rename(columns=metadata)
             extra = extra.drop(columns=[c for c in extra.columns if c in table.columns and c != "variant"])
             table = table.merge(extra, on="variant", how="left")
     return table
@@ -225,8 +287,8 @@ def plot_pareto(summary, out_dir, fid=False):
     panels = [("unique_parameters_M", "lpips_mean", "parameters (M)", "LPIPS vs original (lower = closer)"),
               ("dit_sampling_GFLOPs", "lpips_mean", "DiT sampling GFLOPs", "LPIPS vs original (lower = closer)")]
     if fid and "fid_vs_original" in summary.columns:
-        panels += [("unique_parameters_M", "fid_vs_original", "parameters (M)", "FID-1K vs original"),
-                   ("dit_sampling_GFLOPs", "fid_vs_original", "DiT sampling GFLOPs", "FID-1K vs original")]
+        panels += [("unique_parameters_M", "fid_vs_original", "parameters (M)", "FID-N vs original"),
+                   ("dit_sampling_GFLOPs", "fid_vs_original", "DiT sampling GFLOPs", "FID-N vs original")]
     fig, axes = plt.subplots(1, len(panels), figsize=(4.6 * len(panels), 4), constrained_layout=True, squeeze=False)
     for ax, (x, y, xlabel, ylabel) in zip(axes[0], panels):
         data = summary.dropna(subset=[x, y])
@@ -279,7 +341,9 @@ def main(argv=None):
         else:
             sub.add_argument("--budgets", type=int, nargs="+")
         if name in ("test", "fid"):
-            sub.add_argument("--limit", type=int, help="smoke runs: first N pairs")
+            sub.add_argument("--limit", type=int, help="use at most N selected pairs")
+            sub.add_argument("--stride", type=int, default=1,
+                             help="select every Nth split pair before applying --limit")
             sub.add_argument("--dry-run", action="store_true")
         if name == "test":
             sub.add_argument("--extras", action="store_true", help="also run the naive/removal same-window arms")

@@ -128,8 +128,21 @@ def test_fid_report_writes_files_and_baseline_is_zero(tmp_path):
     assert report.loc["same", "fid_vs_original"] == pytest.approx(0, abs=1e-6)
     assert report.loc["shifted", "fid_vs_original"] > 1.0
     saved = json.loads((tmp_path / "shifted" / "fid.json").read_text())
-    assert saved["images"] == 24 and "fid_vs_adm_imagenet256" not in saved
+    assert saved["images"] == 24 and saved["class_count"] == 24
+    assert saved["metric"] == "FID-24 (relative use only)"
+    assert saved["rank_deficient"] is False
+    assert "fid_vs_adm_imagenet256" not in saved
     assert (tmp_path / "shifted" / "inception_features.npy").exists()
+
+
+def test_fid_metadata_marks_small_feature_covariance_rank_deficient(tmp_path):
+    labels = list(range(8))
+    pixels = np.linspace(-0.8, 0.8, len(labels))
+    make_run(tmp_path, "original", labels, pixels)
+    saved = metrics.fid_report(tmp_path, [], extractor=fake_extractor).iloc[0]
+    assert saved["metric"] == "FID-8 (relative use only)"
+    assert bool(saved["rank_deficient"]) is True
+    assert saved["class_count"] == 8
 
 
 def test_fid_report_with_reference_statistics(tmp_path):
@@ -157,6 +170,8 @@ def test_reports_reject_runs_from_a_different_setup(tmp_path):
         with pytest.raises(ValueError, match="differs"):
             metrics.fid_report(tmp_path, [name], extractor=fake_extractor)
     (tmp_path / "other_env" / "image_0002.pt").unlink()
+    with pytest.raises(ValueError, match="Incomplete"):
+        metrics.load_variant_images(tmp_path, "other_env")
     (tmp_path / "other_env" / "samples.csv").write_text("index,label,seed\n0,1,100\n")
     with pytest.raises(ValueError, match="Incomplete"):
         metrics.load_variant_images(tmp_path, "other_env")
@@ -198,6 +213,7 @@ def test_clip_report_scores_matching_images_higher_than_shuffled(tmp_path):
     assert report.loc["original", "clip_score"] == pytest.approx(100.0)
     saved = json.loads((tmp_path / "wrong" / "clip.json").read_text())
     assert saved["model"] == "fake" and saved["prompt"] == "a photo of a {}"
+    assert saved["class_count"] == 4 and saved["images"] == 12
     assert len(pd.read_csv(tmp_path / "original" / "clip_scores.csv")) == 12
     # Shuffling the text labels lowers a perfectly aligned score.
     image_emb = encode_image(torch.cat([torch.load(tmp_path / "original" / f"image_{i:04d}.pt")

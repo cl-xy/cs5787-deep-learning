@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 from loop_compression import final
+from team_pipeline.cli import select_pairs
 
 
 def frozen_payload():
@@ -52,28 +53,68 @@ def test_frozen_config_copies_are_write_once(tmp_path):
         final.write_frozen_configs(tmp_path, entries)
 
 
-def test_plan_commands_use_the_requested_split_only(tmp_path):
+def test_strided_pair_selection_is_deterministic_and_validated():
+    pairs = [[label, 10000 + label] for label in range(1000)]
+    selected = select_pairs(pairs, stride=2, limit=500)
+    assert [pair[0] for pair in selected] == list(range(0, 1000, 2))
+    assert selected[-1] == [998, 10998]
+    with pytest.raises(ValueError, match="stride"):
+        select_pairs(pairs, stride=0, limit=500)
+    with pytest.raises(ValueError, match="at least 2"):
+        select_pairs(pairs, stride=1000)
+
+
+def test_plan_commands_use_the_requested_split_and_subset(tmp_path):
     entries = final.load_frozen(write_frozen(tmp_path), [2])
-    jobs = final.plan_commands("out", entries, "test", tmp_path, limit=8)
+    jobs = final.plan_commands("out", entries, "test", tmp_path, limit=500, stride=2)
     assert [n for n, _ in jobs] == ["original", "d2_r1_loop", "d2_removal_lowest_blocks"]
     for name, command in jobs:
-        assert command[command.index("--split") + 1] == "test" and command[command.index("--limit") + 1] == "8"
+        assert command[command.index("--split") + 1] == "test"
+        assert command[command.index("--limit") + 1] == "500"
+        assert command[command.index("--stride") + 1] == "2"
     assert jobs[0][1][jobs[0][1].index("--method") + 1] == "original"
+    default_jobs = final.plan_commands("out", entries, "test", tmp_path, limit=8)
+    assert all("--stride" not in command for _, command in default_jobs)
     with pytest.raises(ValueError):
         final.plan_commands("out", entries, "validation", tmp_path)
     with pytest.raises(ValueError):
         final.plan_commands("out", entries, "calibration", tmp_path)
 
 
-def test_dry_run_and_existing_results_skip_work(tmp_path, monkeypatch):
+def write_result_folder(folder, pairs, rows=None, image_count=None):
+    folder.mkdir(parents=True)
+    (folder / "manifest.json").write_text(json.dumps(dict(pairs=pairs)))
+    rows = rows if rows is not None else [
+        (i, label, seed) for i, (label, seed) in enumerate(pairs)]
+    pd.DataFrame(rows, columns=["index", "label", "seed"]).to_csv(folder / "samples.csv", index=False)
+    image_count = len(pairs) if image_count is None else image_count
+    for index in range(image_count):
+        (folder / f"image_{index:04d}.pt").write_bytes(b"x")
+
+
+def test_run_jobs_skips_only_complete_results(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(final.subprocess, "run", lambda *a, **k: pytest.fail("must not run"))
-    jobs = [("original", ["x"]), ("a", ["y"])]
-    final.run_jobs(tmp_path, "test", jobs, dry_run=True)
+    pairs = [[0, 100], [2, 102]]
+    final.run_jobs(tmp_path, "test", [("original", ["x"])], pairs, dry_run=True)
     done = tmp_path / "test" / "a"
-    done.mkdir(parents=True)
-    pd.DataFrame(dict(index=[0])).to_csv(done / "samples.csv", index=False)
-    (done / "image_0000.pt").write_bytes(b"x")
-    final.run_jobs(tmp_path, "test", [("a", ["y"])])               # skipped, no subprocess
+    write_result_folder(done, pairs)
+    final.run_jobs(tmp_path, "test", [("a", ["y"])], pairs)
+    assert "complete (2 images), skipping" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("kind", ["partial", "mismatched"])
+def test_run_jobs_refuses_unsafe_existing_results(tmp_path, monkeypatch, kind):
+    called = []
+    monkeypatch.setattr(final.subprocess, "run", lambda *a, **k: called.append(a))
+    pairs = [[0, 100], [2, 102]]
+    folder = tmp_path / "fid" / "a"
+    if kind == "partial":
+        write_result_folder(folder, pairs, rows=[(0, 0, 100)], image_count=1)
+    else:
+        write_result_folder(folder, [[1, 101], [3, 103]])
+    with pytest.raises(RuntimeError, match=rf"{kind}.*{folder}.*Move it aside"):
+        final.run_jobs(tmp_path, "fid", [("a", ["generate"])], pairs)
+    assert called == []
 
 
 def test_interleaving_alternates_direction_and_covers_everything():
@@ -107,14 +148,18 @@ def synthetic_results():
 def test_summary_and_savings_table_show_looping_saves_parameters_not_flops(tmp_path):
     entries = final.load_frozen(write_frozen(tmp_path), [2])
     fid = pd.DataFrame(dict(variant=["original", "d2_r1_loop", "d2_removal_lowest_blocks"],
-                            fid_vs_original=[0.0, 30.0, 35.0], images=1000))
+                            fid_vs_original=[0.0, 30.0, 35.0], images=500,
+                            class_count=500, metric="FID-500 (relative use only)",
+                            rank_deficient=True))
     clip = pd.DataFrame(dict(variant=["original", "d2_r1_loop", "d2_removal_lowest_blocks"],
-                             clip_score=[28.0, 27.5, 27.0], images=1000))
+                             clip_score=[28.0, 27.5, 27.0], images=500, class_count=500))
     summary = final.build_summary(synthetic_results(), entries, fid, clip)
     assert summary.set_index("variant").loc["d2_r1_loop", "role"] == "loop"
     assert summary.set_index("variant").loc["original", "role"] == "baseline"
-    assert summary.images.eq(64).all()                       # per-table columns are not overwritten
-    assert {"fid_vs_original", "clip_score"} <= set(summary.columns)
+    assert summary.images.eq(64).all()
+    assert summary.fid_images.eq(500).all() and summary.clip_images.eq(500).all()
+    assert summary.fid_class_count.eq(500).all() and summary.clip_class_count.eq(500).all()
+    assert {"fid_vs_original", "clip_score", "fid_metric", "fid_rank_deficient"} <= set(summary.columns)
     savings = final.savings_table(summary).set_index("variant")
     assert savings.loc["d2_r1_loop", "parameter_reduction_pct"] > 7
     assert savings.loc["d2_r1_loop", "flops_reduction_pct"] == 0
@@ -135,6 +180,27 @@ def test_report_end_to_end_on_synthetic_results(tmp_path):
     assert list(summary.variant) == ["original", "d2_r1_loop", "d2_removal_lowest_blocks"]
     assert (report / "parameter_vs_flop_savings.csv").exists() and (report / "pareto_lpips.png").exists()
     assert not (report / "pareto_fid.png").exists()           # no FID results yet
+
+
+def test_report_end_to_end_includes_fid_and_clip_metadata(tmp_path):
+    out = write_frozen(tmp_path)
+    (out / "test").mkdir()
+    synthetic_results().to_csv(out / "test" / "results.csv", index=False)
+    for name, fid_value, clip_value in zip(synthetic_results().variant, [0.0, 30.0, 35.0], [28.0, 27.5, 27.0]):
+        folder = out / "fid" / name
+        folder.mkdir(parents=True)
+        (folder / "fid.json").write_text(json.dumps(dict(
+            variant=name, images=500, class_count=500,
+            metric="FID-500 (relative use only)", rank_deficient=True,
+            fid_vs_original=fid_value)))
+        (folder / "clip.json").write_text(json.dumps(dict(
+            variant=name, images=500, class_count=500, clip_score=clip_value)))
+    final.main(["report", "--output", str(out), "--budgets", "2"])
+    summary = pd.read_csv(out / "report" / "summary.csv")
+    assert {"fid_images", "fid_class_count", "fid_metric", "fid_rank_deficient",
+            "fid_vs_original", "clip_images", "clip_class_count", "clip_score"} <= set(summary.columns)
+    assert summary.fid_images.eq(500).all() and summary.clip_images.eq(500).all()
+    assert (out / "report" / "pareto_fid.png").exists()
 
 
 def test_one_run_filling_two_roles_appears_once(tmp_path):

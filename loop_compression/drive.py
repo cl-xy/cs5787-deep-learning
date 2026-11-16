@@ -38,12 +38,14 @@ def file_sha256(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def build_command(output, entry, config_dir, split, limit=None):
+def build_command(output, entry, config_dir, split, limit=None, stride=1):
     """The shared-runner command for one entry; no split policy (see ``run_command``)."""
     command = [sys.executable, "-m", "team_pipeline.cli", "run", "--output", str(output),
                "--split", split, "--name", entry["name"]]
     if limit:
         command += ["--limit", str(limit)]
+    if stride != 1:
+        command += ["--stride", str(stride)]
     if entry.get("settings") is not None:
         command += ["--method", METHOD, "--method-config", str(Path(config_dir) / f"{entry['name']}.json")]
     else:
@@ -51,10 +53,10 @@ def build_command(output, entry, config_dir, split, limit=None):
     return command
 
 
-def run_command(output, entry, config_dir, split=SELECTION_SPLIT, limit=None):
+def run_command(output, entry, config_dir, split=SELECTION_SPLIT, limit=None, stride=1):
     """Selection-time command: validation only."""
     check_split(split)
-    return build_command(output, entry, config_dir, split, limit)
+    return build_command(output, entry, config_dir, split, limit=limit, stride=stride)
 
 
 def load_shortlist(path, budgets=None):

@@ -39,10 +39,12 @@ def test_run_commands_use_the_shared_runner(tmp_path):
     assert loop[loop.index("--method") + 1] == drive.METHOD
     assert loop[loop.index("--method-config") + 1] == str(tmp_path / "cfg" / "d2_r1_loop.json")
     assert loop[loop.index("--split") + 1] == "validation" and loop[loop.index("--name") + 1] == "d2_r1_loop"
-    shared = drive.run_command("out", ENTRIES[-1], tmp_path / "cfg", limit=4)
+    shared = drive.run_command("out", ENTRIES[-1], tmp_path / "cfg", limit=4, stride=2)
     assert shared[shared.index("--method") + 1] == "removal"
     assert shared[shared.index("--removed") + 1:shared.index("--removed") + 3] == ["5", "9"]
     assert shared[shared.index("--limit") + 1] == "4"
+    assert shared[shared.index("--stride") + 1] == "2"
+    assert "--stride" not in loop
 
 
 def prepare_run(tmp_path):

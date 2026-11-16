@@ -61,6 +61,20 @@ def load_run(args):
     return root, protocol, config
 
 
+def select_pairs(pairs, stride=1, limit=None):
+    """Select a deterministic split subset by striding first, then limiting."""
+    if stride < 1:
+        raise ValueError("--stride must be at least 1")
+    if limit is not None and limit < 2:
+        raise ValueError("--limit must be at least 2")
+    selected = pairs[::stride]
+    if limit is not None:
+        selected = selected[:limit]
+    if len(selected) < 2:
+        raise ValueError("Pair selection must contain at least 2 images")
+    return selected
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     subs = parser.add_subparsers(dest="command", required=True)
@@ -77,7 +91,9 @@ def main(argv=None):
             sub.add_argument("--remove-count", type=int, default=2)
         elif name == "run":
             sub.add_argument("--split", choices=["validation", "test", "fid"], default="validation")
-            sub.add_argument("--limit", type=int, help="Use only the first N pairs of the split (smoke runs)")
+            sub.add_argument("--limit", type=int, help="Use at most N selected pairs")
+            sub.add_argument("--stride", type=int, default=1,
+                             help="Select every Nth split pair before applying --limit")
             sub.add_argument("--method", required=True, help="original/removal/loop/damped or module:function")
             sub.add_argument("--name", required=True, help="Unique folder name; baseline must be original")
             sub.add_argument("--removed", type=int, nargs="+", help="Otherwise use profile/selection.json")
@@ -149,10 +165,7 @@ def main(argv=None):
     pairs = protocol["splits"].get(args.split)
     if pairs is None:
         raise ValueError(f"Protocol has no '{args.split}' split; prepare a root from the updated team_protocol.json")
-    if args.limit is not None:
-        if args.limit < 2:
-            raise ValueError("--limit must be at least 2")
-        pairs = pairs[:args.limit]
+    pairs = select_pairs(pairs, stride=args.stride, limit=args.limit)
     run_variant(config, pairs, root / args.split / args.name,
                 mode=mode, removed=removed, alpha=args.alpha, model_transform=transform,
                 method_metadata=metadata, keep_checkpoint=args.keep_checkpoint)
