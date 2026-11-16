@@ -1,0 +1,16 @@
+# Python environments and caches
+.venv*/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# Large downloads: DiT checkpoint, ADM reference statistics
+checkpoints/
+
+# Generated experiment outputs
+team_runs/
+outputs_mac/
