@@ -111,8 +111,9 @@ def main(argv=None):
     if args.command == "evaluate":
         root = Path(args.output) / args.split
         print(compare_results(root, args.names).to_string(index=False))
-        pairs = load_protocol(Path(args.output) / "protocol.json")["splits"][args.split]
-        comparison_grid(root, args.names, pairs)
+        # Use the pairs the baseline actually ran: a --limit run covers only a prefix of the split.
+        manifest = json.loads((root / "original" / "manifest.json").read_text())
+        comparison_grid(root, args.names, [tuple(pair) for pair in manifest["pairs"]])
         return
     root, protocol, config = load_run(args)
     if args.command == "profile":
