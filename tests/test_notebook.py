@@ -38,6 +38,50 @@ def test_existing_notebook_contracts(notebook):
     notebook["run_notebook_tests"]()
 
 
+def test_inverse_k_entry_point_and_checkpoint_compatibility(notebook, tmp_path, monkeypatch):
+    """Dynamic damping must survive save/load; old numeric alpha stays fixed."""
+    class SmallModel(nn.Module):
+        def __init__(self, **kwargs):
+            super().__init__()
+            self.blocks = nn.ModuleList([nn.Linear(1, 1) for _ in range(6)])
+
+    monkeypatch.setitem(sys.modules, "models", SimpleNamespace(DiT_XL_2=SmallModel))
+    for alpha in ["inverse_k", 0.5]:
+        model = SmallModel()
+        model.blocks = notebook["ScheduledBlocks"](model.blocks, [1, 2, 4], "damped", alpha)
+        path = tmp_path / f"checkpoint_{alpha}.pt"
+        notebook["checkpoint_stats"](model, path, keep=True)
+        loaded = notebook["load_compact_checkpoint"](path)
+        assert loaded.blocks.metadata() == model.blocks.metadata()
+        for key, value in model.state_dict().items():
+            torch.testing.assert_close(value, loaded.state_dict()[key], atol=0, rtol=0)
+        assert not loaded.training and all(not p.requires_grad for p in loaded.parameters())
+        if alpha == 0.5:
+            payload = torch.load(path, weights_only=True)
+            # Emulate an existing checkpoint before the damping policy was added.
+            for key in ["damping_policy", "k_definition"]:
+                payload["schedule"].pop(key)
+            for entry in payload["schedule"]["execution_schedule"]:
+                entry.pop("iteration")
+            torch.save(payload, path)
+            legacy = notebook["load_compact_checkpoint"](path)
+            assert legacy.blocks.metadata()["damping_policy"] == "fixed"
+            assert [entry["scale"] for entry in legacy.blocks.metadata()["execution_schedule"]] == [1, .5, .5, 1, .5, 1]
+
+    notebook["write_fixed_selection"](tmp_path, [1, 2, 4])
+    calls = []
+    monkeypatch.setitem(notebook, "RUN_ARGS", object())
+    monkeypatch.setitem(notebook, "KEEP_CHECKPOINTS", False)
+    monkeypatch.setitem(notebook, "load_run", lambda args: (tmp_path, {"splits": {"validation": [[0, 10]]}}, {}))
+    monkeypatch.setitem(notebook, "run_variant", lambda *args, **kwargs: calls.append(kwargs))
+    notebook["run_method"]("validation", "damped", "new_damping")
+    assert calls[-1]["alpha"] == "inverse_k"
+    assert calls[-1]["method_metadata"]["damping_policy"] == "inverse_k"
+    assert calls[-1]["method_metadata"]["replacement_residual_scale"] is None
+    notebook["run_method"]("validation", "damped", "legacy_damping", alpha=0.5)
+    assert calls[-1]["method_metadata"]["damping_policy"] == "fixed"
+
+
 def test_imagenette_class_array_and_balanced_protocol(notebook):
     from torchvision.models import ResNet50_Weights
 
