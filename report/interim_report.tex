@@ -1,0 +1,307 @@
+\documentclass[sigconf,nonacm]{acmart}
+
+\usepackage{booktabs}
+\usepackage{makecell}
+\usepackage{amsmath}
+\usepackage{xcolor}
+
+%% Placeholders for results still to be collected. Search for "TODO".
+\newcommand{\todo}[1]{\textcolor{red}{\textbf{[TODO:} #1\textbf{]}}}
+
+\settopmatter{printacmref=false}
+\setcopyright{none}
+\renewcommand\footnotetextcopyrightpermission[1]{}
+\pagestyle{plain}
+\setlength{\emergencystretch}{3em}
+
+\begin{document}
+
+\title{Training-Free Compression of Diffusion Transformers via Layer Looping}
+\subtitle{CS 5787 Deep Learning: Interim Report}
+
+\author{Jiacheng Yang}
+\affiliation{%
+  \institution{Cornell University}
+  \city{New York}\state{NY}\country{USA}}
+\email{jy2276@cornell.edu}
+
+\author{Xinyi Lu}
+\affiliation{%
+  \institution{Cornell University}
+  \city{New York}\state{NY}\country{USA}}
+\email{xl2269@cornell.edu}
+
+\author{Matthew Evan Lee}
+\affiliation{%
+  \institution{Cornell University}
+  \city{New York}\state{NY}\country{USA}}
+\email{mel328@cornell.edu}
+
+\begin{abstract}
+We test whether a frozen, pretrained DiT-XL/2~\cite{peebles2023dit} can be compressed
+without training by deleting transformer blocks and re-running kept blocks in their
+place, following Training-Free Looped Transformers~\cite{chen2026looped}. Reusing a
+single neighbouring block is worse than simply skipping it, and damping halves the loss.
+Looping a screened window of kept blocks behaves differently. With four of 28 blocks
+removed (14.2\% fewer parameters), it beats removing the same window on 64 held-out
+images in LPIPS ($0.432$ vs $0.509$), FID-500 ($115.7$ vs $142.6$) and CLIP score
+($28.8$ vs $27.6$). It does so by keeping more compute, and gives no gain when two or six
+blocks are removed.
+\end{abstract}
+
+\keywords{diffusion transformers, model compression, looped transformers, training-free inference}
+
+\maketitle
+
+%% ---------------------------------------------------------------------------
+\section{Introduction}
+
+Diffusion transformers~\cite{peebles2023dit} give each of their $N$ blocks its own
+weights. We ask whether an off-the-shelf DiT can be made smaller \emph{without
+retraining} by deleting blocks and re-running kept ones in their place. That would cut
+storage and parameter memory while preserving computational depth.
+
+Our basis is Chen et al.~\cite{chen2026looped}. They note that a pre-norm residual block
+$L(x)=x+F_L(x)$ is one forward-Euler step of size 1 on $\dot x=F_L(x)$. Naive
+re-application integrates past the regime later layers expect, while damped sub-steps or a
+Runge--Kutta blend let frozen LLMs loop a mid-depth window. They loop to add compute; we
+loop to replace \emph{removed} blocks. Our backbone is DiT-XL/2 (28 blocks, 675M
+parameters, ImageNet $256\times256$)~\cite{peebles2023dit}. TeaCache~\cite{liu2025teacache}
+motivates our feature-change selection signal. ELT~\cite{goyal2026elt} and
+Looped-DiT~\cite{chng2026loopeddit} show that \emph{trained} looped DiTs work well; we test
+Looped-DiT's exclusive self-attention (XSA) without training. TPIPS~\cite{wang2026tpips}
+measures aspect-specific drift.
+
+%% ---------------------------------------------------------------------------
+\section{Problem Formulation}
+
+Let $G(f;y,z,\xi)$ be the image produced by noise predictor $f$ for class $y$, initial
+latent $z$ and sampler noise $\xi$. Sampling uses 50 ancestral DDPM
+steps~\cite{ho2020ddpm}, classifier-free guidance~\cite{ho2021cfg} at scale 4, FP32 and
+the fixed VAE. Using only the frozen weights $\theta$, we seek $\tilde f$ with
+$P(\tilde f)\le(1-\rho)P(f_\theta)$ unique parameters that minimizes
+\begin{equation}
+  \mathcal D(\tilde f)=\mathbb E_{y,z,\xi}\, d\big(G(\tilde f;y,z,\xi),\,G(f_\theta;y,z,\xi)\big),
+\end{equation}
+while keeping samples close to real data. Compute is reported alongside.
+
+\textbf{Data.} No training data is needed. A shared protocol fixes ImageNet labels and
+disjoint seeds. The splits are \emph{calibration} (16 images, 8 classes) for selection and
+screening, \emph{validation} (16) for choosing settings, \emph{test} (64) for one held-out
+evaluation, and \emph{fid} (one image per class; 500 used). Real references are ImageNet
+validation images and the ADM statistics~\cite{dhariwal2021adm}.
+
+\textbf{Metrics.} Paired LPIPS~\cite{zhang2018lpips} (AlexNet) against the original image
+for the same seeds (lower is closer, not better), and TPIPS for shape and texture.
+FID-500~\cite{heusel2017fid} against the original's samples and the ADM statistics, used
+only to compare methods (rank-deficient covariance), plus Clean-FID~\cite{parmar2022cleanfid}
+against real images. CLIP score~\cite{radford2021clip} with ``a photo of a \{class\}''.
+Efficiency: unique parameters, DiT FLOPs (multiply-add $=2$) and synchronized latency.
+
+\begin{table*}[t]
+  \caption{Window looping versus the strongest removal at equal unique parameters.
+  Removal drops blocks 20--21 at $|D|=2$ and the window's discarded blocks at $|D|=4,6$.
+  $\Delta$ = paired validation LPIPS (loop $-$ removal, 95\% CI). Test: 64 images.
+  Speedup: interleaved timing on Apple MPS.}
+  \label{tab:window}
+  \small
+  \begin{tabular}{cllrrcccc}
+    \toprule
+    $|D|$ & Variant & Window / kept, strategy ($K$, $h$, $\beta$) & Params & TFLOPs &
+      Val LPIPS & $\Delta$ val (95\% CI) & Test LPIPS & Speedup\\
+    \midrule
+    0 & Original & -- & 675.1M & 23.72 & -- & -- & -- & 1.00$\times$\\
+    \midrule
+    2 & Loop    & $[16,21]$ / 17--20, anchored (2, 0.75, 0.5) & 627.3M & 25.42 & 0.364 & $+0.068$ $[+0.018,+0.119]$ & 0.349 & 0.90$\times$\\
+    2 & Removal & blocks 20--21                              & 627.3M & 22.03 & \textbf{0.296} & & \textbf{0.327} & 1.02$\times$\\
+    \midrule
+    4 & Loop    & $[16,21]$ / 18--19, damped (2, 0.75, 0)    & 579.5M & 22.03 & \textbf{0.433} & $-0.088$ $[-0.131,-0.050]$ & \textbf{0.432} & 1.02$\times$\\
+    4 & Removal & same window                                & 579.5M & 20.34 & 0.522 & & 0.509 & 1.10$\times$\\
+    \midrule
+    6 & Loop    & $[7,14]$ / 10--11, damped (2, 0.75, 0)     & 531.7M & 20.34 & 0.631 & $-0.006$ $[-0.016,+0.003]$ & 0.621 & 1.10$\times$\\
+    6 & Removal & same window                                & 531.7M & 18.64 & 0.637 & & 0.630 & 1.18$\times$\\
+    \bottomrule
+  \end{tabular}
+\end{table*}
+
+%% ---------------------------------------------------------------------------
+\section{Method}
+
+Each adaLN-Zero DiT block~\cite{peebles2023dit} is $B_\ell(h,c)=h+F_\ell(h,c)$, with
+conditioning $c$ from the timestep and class.
+
+\textbf{Selection.} On calibration trajectories we score each block by its mean
+normalized feature change $r_\ell(t)=\lVert h_{\ell+1}-h_\ell\rVert_1/(\lVert h_\ell\rVert_1+\epsilon)$,
+averaged over the CFG branches, samples and timesteps. The lowest-scoring blocks form the
+removed set $R$ (first and last blocks are protected).
+
+\textbf{Single-block rules.} With $\pi(\ell)$ the nearest preceding kept block, slot
+$\ell\in R$ computes
+\begin{equation}
+h_{\ell+1}=\begin{cases}
+h_\ell & \text{removal},\\
+B_{\pi(\ell)}(h_\ell,c) & \text{loop},\\
+h_\ell+\alpha\,(B_{\pi(\ell)}(h_\ell,c)-h_\ell) & \text{damped},\\
+B^{\mathrm{XSA}}_{\pi(\ell)}(h_\ell,c) & \text{XSA reuse}.
+\end{cases}
+\end{equation}
+XSA~\cite{chng2026loopeddit} projects each head's attention output away from its own
+value, $z_{i,h}=(I-\hat v_{i,h}\hat v_{i,h}^\top)\sum_j a_{ij,h}v_{j,h}$; we apply it only
+at reused slots.
+
+\textbf{Window looping.} Following~\cite{chen2026looped}, a window $[a,b]$ keeps a
+central subset of blocks and discards the rest ($|D|\in\{2,4,6\}$). The kept composition
+$g$ is iterated $K$ times, either naively ($x\leftarrow g(x)$), damped
+($x\leftarrow x+h(g(x)-x)$) or anchored
+($\beta g(x_0)+(1-\beta)\Phi_h^K(x_0)$ with $\Phi_h(x)=x+h(g(x)-x)$, their Eq.~16).
+Candidates are screened by one-step noise-prediction error on cached calibration states.
+For each budget, one configuration is frozen on validation LPIPS against the strongest
+removal with the same number of parameters.
+
+%% ---------------------------------------------------------------------------
+\section{Preliminary Results}
+
+\textbf{Single-block rules (validation pilot).} Calibration selected blocks 4 and 7.
+The smallest feature changes occur in early blocks 3--8, at depth fractions 0.14--0.25,
+not in the 0.45--0.60 band Chen et al.\ report for LLMs. Removing two blocks saves 47.8M
+parameters (7.1\%). Removal also saves 7.1\% of FLOPs, while the reuse rules keep the
+original FLOPs. Our FLOP count reproduces DiT's 118.6 GFLOPs per image.
+Table~\ref{tab:single} shows that skipping is closest to the original. Paired 95\%
+bootstrap intervals over 16 images: loop $-$ removal $=+0.128$ $[+0.054,+0.199]$; damped
+$-$ removal $=+0.065$ $[+0.016,+0.121]$; XSA $-$ loop $=+0.005$ $[-0.033,+0.045]$. Damping
+halves the damage from reuse, consistent with~\cite{chen2026looped}, and training-free XSA
+does not help. Figure~\ref{fig:qual} shows the composition changes and the texture
+artifacts of reuse.
+
+\begin{table}[t]
+  \caption{Single-block rules, blocks 4 and 7 replaced, 16 validation images (T4).
+  LPIPS from 8-bit previews (mean $\pm$ std).}
+  \label{tab:single}
+  \small
+  \begin{tabular}{lccc}
+    \toprule
+    Rule & GFLOPs/fwd & Latency (s) & LPIPS$\downarrow$\\
+    \midrule
+    Original  & 474.5 & $8.60\pm0.19$ & --\\
+    Removal   & 440.6 & $8.11\pm0.31$ & $\mathbf{0.465}\pm0.134$\\
+    Loop      & 474.5 & $8.69\pm0.30$ & $0.593\pm0.126$\\
+    Damped ($\alpha=0.5$) & 474.5 & $8.68\pm0.27$ & $0.530\pm0.132$\\
+    XSA reuse & 474.5 & $8.71\pm0.30$ & $0.598\pm0.123$\\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.92\linewidth]{figures/qualitative.png}
+  \caption{Paired samples (same class and noise per column).}
+  \Description{Five rows of generated images for original, removal, loop, damped and XSA
+  reuse; four columns of classes.}
+  \label{fig:qual}
+\end{figure}
+
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{figures/tradeoff_lpips.png}
+  \caption{Test LPIPS against unique parameters and DiT sampling GFLOPs (orange: loop;
+  green: strongest removal; blue: original).}
+  \Description{Two scatter plots of LPIPS against parameters and against FLOPs for looped
+  and removal variants at budgets 2, 4 and 6.}
+  \label{fig:tradeoff}
+\end{figure}
+
+\textbf{Window looping.} Table~\ref{tab:window} shows that looping wins only at
+$|D|=4$. The damped loop over $[16,21]$, keeping blocks 18--19, is significantly closer
+to the original than removing the same window on validation, and also on test. On 500
+\emph{fid} images it improves FID-500 against the ADM statistics ($115.7$ vs $142.6$;
+original $84.9$), FID against the original's samples ($143.1$ vs $178.7$) and CLIP score
+($28.84$ vs $27.64$; original $31.35$). At $|D|=2$, removing blocks 20--21 is
+significantly better, and the loop even costs 7.1\% more FLOPs than the original. At
+$|D|=6$ the two are tied and both drift far. The gain is paid for in compute
+(Figure~\ref{fig:tradeoff}): the $|D|=4$ loop has the same FLOPs as the $|D|=2$ removal,
+which is closer to the original (0.327 vs 0.432) but keeps 47.8M more parameters.
+Speedups are at most $1.18\times$, below the FLOP savings.
+
+\textbf{Summary.} For DiT-XL/2, training-free looping is not a uniform win over removal.
+Reusing a single block hurts. A damped looped window ($K=2$, $h=0.75$) beats
+equal-parameter removal at the 14\% budget, trading compute for parameters.
+
+%% ---------------------------------------------------------------------------
+\section{Future Work}
+
+\textbf{Completing the evaluation.} We will add paired bootstrap intervals on the test
+split for Table~\ref{tab:window}, and recompute the single-block pilot's LPIPS from FP32
+tensors. We will also evaluate the single-block rules on the test split, and add
+Clean-FID against real ImageNet images and TPIPS (overall, shape, texture) for every
+variant.
+
+\textbf{Controls and ablations.} A random block-selection control at matched budgets
+will test whether feature-change and sensitivity selection matter. We will sweep the
+damping $\alpha\in\{0.25,0.5,0.75\}$ and the window step size $h$, and compare block
+positions, since the lowest feature change is early but the best looped window is late
+mid-stack. Layer-mode looping and larger $K$ will also be compared.
+
+\textbf{Extensions.} If time permits, we will apply the best recipe to a second
+backbone, such as SiT or a text-to-image DiT, to test whether the window position and
+budget findings transfer.
+
+\bibliographystyle{ACM-Reference-Format}
+\begin{thebibliography}{99}
+
+\bibitem{chen2026looped}
+L. Chen, J. Li, C. Liang, N. Lao, and Q. Liu. 2026. Training-Free Looped Transformers.
+arXiv:2605.23872.
+
+\bibitem{peebles2023dit}
+W. Peebles and S. Xie. 2023. Scalable Diffusion Models with Transformers. In \emph{ICCV}.
+
+\bibitem{liu2025teacache}
+F. Liu, S. Zhang, X. Wang, Y. Wei, H. Qiu, Y. Zhao, Y. Zhang, Q. Ye, and F. Wan. 2025.
+Timestep Embedding Tells: It's Time to Cache for Video Diffusion Model. In \emph{CVPR}.
+
+\bibitem{goyal2026elt}
+S. Goyal, S. Agrawal, G. G. Anil, P. Jain, S. Paul, and A. Kusupati. 2026. ELT: Elastic
+Looped Transformers for Visual Generation. arXiv:2604.09168.
+
+\bibitem{chng2026loopeddit}
+Y. X. Chng, T. Chen, W. Tong, H. Diao, Z. Cai, L. Yang, Z. Liu, L. Lu, D. Lin, and
+G. Huang. 2026. Looped Diffusion Transformer. arXiv:2609.40305.
+
+\bibitem{wang2026tpips}
+S.-Y. Wang, Y. Nitzan, A. Hertzmann, J.-Y. Zhu, E. Shechtman, A. A. Efros, and R. Zhang.
+2026. The Many Senses of Visual Similarity: A Text-Prompted Image Perceptual Metric.
+arXiv:2607.18237.
+
+\bibitem{ho2020ddpm}
+J. Ho, A. Jain, and P. Abbeel. 2020. Denoising Diffusion Probabilistic Models. In
+\emph{NeurIPS}.
+
+\bibitem{ho2021cfg}
+J. Ho and T. Salimans. 2021. Classifier-Free Diffusion Guidance. In \emph{NeurIPS
+Workshop on Deep Generative Models}.
+
+\bibitem{dhariwal2021adm}
+P. Dhariwal and A. Nichol. 2021. Diffusion Models Beat GANs on Image Synthesis. In
+\emph{NeurIPS}.
+
+\bibitem{zhang2018lpips}
+R. Zhang, P. Isola, A. A. Efros, E. Shechtman, and O. Wang. 2018. The Unreasonable
+Effectiveness of Deep Features as a Perceptual Metric. In \emph{CVPR}.
+
+\bibitem{heusel2017fid}
+M. Heusel, H. Ramsauer, T. Unterthiner, B. Nessler, and S. Hochreiter. 2017. GANs Trained
+by a Two Time-Scale Update Rule Converge to a Local Nash Equilibrium. In \emph{NeurIPS}.
+
+\bibitem{parmar2022cleanfid}
+G. Parmar, R. Zhang, and J.-Y. Zhu. 2022. On Aliased Resizing and Surprising Subtleties
+in GAN Evaluation. In \emph{CVPR}.
+
+\bibitem{radford2021clip}
+A. Radford, J. W. Kim, C. Hallacy, A. Ramesh, G. Goh, S. Agarwal, G. Sastry, A. Askell,
+P. Mishkin, J. Clark, G. Krueger, and I. Sutskever. 2021. Learning Transferable Visual
+Models From Natural Language Supervision. In \emph{ICML}.
+
+\end{thebibliography}
+
+\end{document}
