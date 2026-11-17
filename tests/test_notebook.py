@@ -4,6 +4,7 @@ Run with: venv/bin/python -m pytest -q
 """
 import json
 import linecache
+from collections import Counter
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -35,6 +36,102 @@ def notebook():
 
 def test_existing_notebook_contracts(notebook):
     notebook["run_notebook_tests"]()
+
+
+def test_imagenette_class_array_and_balanced_protocol(notebook):
+    from torchvision.models import ResNet50_Weights
+
+    expected = (0, 217, 482, 491, 497, 566, 569, 571, 574, 701)
+    assert notebook["CLASS_LABELS"] == expected
+    categories = ResNet50_Weights.IMAGENET1K_V1.meta["categories"]
+    for label, synset, name in notebook["IMAGENETTE_CLASSES"]:
+        assert categories[label] == name
+        assert synset.startswith("n") and len(synset) == 9
+    protocol = notebook["load_protocol"](notebook["PROTOCOL"])
+    seeds = set()
+    for split, count in [("calibration", 2), ("validation", 2), ("test", 500)]:
+        pairs = protocol["splits"][split]
+        assert Counter(label for label, seed in pairs) == dict.fromkeys(expected, count)
+        split_seeds = {seed for label, seed in pairs}
+        assert not seeds & split_seeds
+        seeds.update(split_seeds)
+    assert {label for label, seed in notebook["make_protocol"]()["splits"]["test"]} == set(expected)
+
+
+def test_imagenette_reference_selection_and_cache(notebook, tmp_path, monkeypatch):
+    from PIL import Image
+    import torchvision.datasets
+
+    downloads = []
+
+    def local_imagenette(root, split, size, download):
+        downloads.append((split, size, download))
+        # Different native aspect ratios and grayscale exercise RGB/crop handling.
+        for label, synset, name in notebook["IMAGENETTE_CLASSES"]:
+            folder = Path(root) / "imagenette2" / "train" / synset
+            folder.mkdir(parents=True)
+            for i in range(3):
+                Image.new("L", (12 + i, 20 - i), color=i * 60).save(folder / f"{i}.JPEG")
+
+    monkeypatch.setattr(torchvision.datasets, "Imagenette", local_imagenette)
+    pairs = [(label, 100 + i) for i, label in enumerate(notebook["CLASS_LABELS"])]
+    prepare = notebook["prepare_imagenette_reference"]
+    output, description = prepare(tmp_path / "source", tmp_path / "prepared", pairs,
+                                  images_per_class=2, image_size=8, seed=42)
+    assert downloads == [("train", "full", True)]
+    assert len(list(output.glob("*.png"))) == 20
+    for path in output.glob("*.png"):
+        with Image.open(path) as image:
+            assert image.mode == "RGB" and image.size == (8, 8)
+    manifest = json.loads((output / "reference_manifest.json").read_text())
+    assert Counter(row["label"] for row in manifest["inventory"]) == dict.fromkeys(notebook["CLASS_LABELS"], 2)
+    assert len({row["source"] for row in manifest["inventory"]}) == 20
+    assert manifest["settings"]["source_split"] == "train"
+    assert "seed=42" in description and "8x8" in description
+    assert not (output / "imagenette2").exists()
+    # A completed reference avoids downloading and processing again.
+    assert prepare(tmp_path / "source", tmp_path / "prepared", pairs,
+                   images_per_class=2, image_size=8, seed=42) == (output, description)
+    assert len(downloads) == 1
+    # Check input labels/balance before any network or image access.
+    with pytest.raises(ValueError, match="outside Imagenette"):
+        prepare(tmp_path / "unused", tmp_path / "prepared", [(207, 100)])
+    with pytest.raises(ValueError, match="balanced"):
+        prepare(tmp_path / "unused", tmp_path / "prepared", [*pairs, (0, 200)])
+    with pytest.raises(ValueError, match="integer >= 2"):
+        prepare(tmp_path / "unused", tmp_path / "prepared", pairs, images_per_class=1)
+    next(output.glob("*.png")).unlink()
+    with pytest.raises(ValueError, match="incomplete"):
+        prepare(tmp_path / "source", tmp_path / "prepared", pairs,
+                images_per_class=2, image_size=8, seed=42)
+    assert len(downloads) == 1
+
+
+def test_large_run_preview_is_bounded(notebook, tmp_path, monkeypatch):
+    """Every sample is saved; only 16 decoded images enter the preview grid."""
+    import torchvision.utils
+
+    vae = nn.Linear(1, 1)
+    vae.config = SimpleNamespace()
+    monkeypatch.setitem(notebook, "_prepare", lambda *a: (notebook["Tiny"](), vae, None))
+    monkeypatch.setitem(notebook, "warmup", lambda *a: None)
+    monkeypatch.setitem(notebook, "generate", lambda *a: torch.zeros(1, 3, 8, 8))
+    saved_batches = []
+    save_image = torchvision.utils.save_image
+
+    def capture_grid(images, path, **kwargs):
+        if Path(path).name == "grid.png":
+            saved_batches.append(len(images))
+        return save_image(images, path, **kwargs)
+
+    monkeypatch.setattr(torchvision.utils, "save_image", capture_grid)
+    pairs = [(0, 100 + i) for i in range(19)]
+    result = notebook["run_variant"](
+        dict(device="cpu", image_size=8, cfg_scale=4), pairs, tmp_path / "original")
+    assert len(result) == 19
+    assert len(list((tmp_path / "original").glob("image_*.pt"))) == 19
+    assert len(list((tmp_path / "original").glob("image_*.png"))) == 19
+    assert saved_batches == [16]
 
 
 def test_cpu_configuration_and_resume(notebook, tmp_path, monkeypatch):
@@ -100,7 +197,7 @@ def test_real_sampler_and_lpips_only_evaluation(notebook, tmp_path, monkeypatch)
         AutoencoderKL=SimpleNamespace(from_pretrained=lambda *a, **kw: Decoder())))
     config = dict(device="cpu", image_size=256, cfg_scale=4.0,
                   checkpoint=str(checkpoint), vae_id="offline-decoder", sampling_steps=2)
-    pairs = [(207, 10016), (360, 10017)]
+    pairs = [(0, 10016), (217, 10017)]
     names = ["original", "member1_removal", "member2_loop", "member3_damped", "member4_xsa_reuse"]
     run_root = tmp_path / "run"
     split_root = run_root / "validation"
@@ -118,17 +215,60 @@ def test_real_sampler_and_lpips_only_evaluation(notebook, tmp_path, monkeypatch)
     # Disabled extras must never import/install TPIPS or Clean-FID.
     monkeypatch.setitem(sys.modules, "tpips", None)
     monkeypatch.setitem(sys.modules, "cleanfid", None)
-    notebook.update(RUN_ROOT=run_root, NAMES=names,
+    notebook.update(RUN_ROOT=run_root, NAMES=names, WORKSPACE=tmp_path,
                     evaluate_split=lambda *a: pytest.fail("Completed LPIPS rerun"),
                     subprocess=SimpleNamespace(run=lambda *a, **kw: pytest.fail("Optional pip install")),
                     display=lambda *a: None,
                     Image=lambda **kw: kw)
     execute_cell(notebook, 46)
+    notebook["USE_IMAGENETTE_REFERENCE"] = False
     execute_cell(notebook, 47)
     import pandas as pd
     pd.testing.assert_frame_equal(summary, pd.read_csv(split_root / "results_extended.csv"))
     metadata = json.loads((split_root / "evaluation_extended.json").read_text())
     assert metadata["fid"] is None and metadata["tpips"] is None
+
+    # Route the same completed generation through Imagenette FID, still offline.
+    # Stub the external Inception implementation while using actual image export,
+    # manifests, class selection, feature-file lists and result serialization.
+    from PIL import Image as PILImage
+    import numpy as np
+    import torchvision.datasets
+
+    def local_reference(root, **kwargs):
+        mapping = {label: synset for label, synset, name in notebook["IMAGENETTE_CLASSES"]}
+        for label in [0, 217]:
+            folder = Path(root) / "imagenette2/train" / mapping[label]
+            folder.mkdir(parents=True)
+            for i in range(3):
+                PILImage.new("RGB", (12, 16), color=(i * 60, 20, 30)).save(folder / f"{i}.JPEG")
+
+    monkeypatch.setattr(torchvision.datasets, "Imagenette", local_reference)
+    feature_calls = []
+
+    def features(files, **kwargs):
+        feature_calls.append(files)
+        return np.array([[float(i), float(i + 1)] for i in range(len(files))])
+
+    fake_fid = SimpleNamespace(
+        get_files_features=features,
+        fid_from_feats=lambda a, b: float(np.square(a.mean(0) - b.mean(0)).sum()))
+    monkeypatch.setitem(sys.modules, "cleanfid", SimpleNamespace(fid=fake_fid))
+    monkeypatch.setitem(sys.modules, "cleanfid.features", SimpleNamespace(
+        build_feature_extractor=lambda *a, **kw: object()))
+    monkeypatch.setitem(notebook, "_extra_version", lambda name: "test-installed")
+    notebook.update(USE_IMAGENETTE_REFERENCE=True, FID_REAL_IMAGES_PER_CLASS=2)
+    with pytest.warns(UserWarning, match="Small-sample FID"):
+        result = notebook["evaluate_saved_split"]("validation")
+    assert result["fid"].notna().all()
+    assert len(feature_calls) == 6  # One real reference extraction, five methods.
+    assert len(feature_calls[0]) == 4
+    assert all(Path(p).name.startswith("class_") for p in feature_calls[0])
+    assert all(Path(files[0]).name == "image_0000.png" for files in feature_calls[1:])
+    metadata = json.loads((split_root / "evaluation_extended.json").read_text())
+    assert metadata["fid"]["reference_images"] == 4
+    assert "Imagenette" in metadata["fid"]["reference_description"]
+    assert metadata["tpips"] is None
 
     # Same validation must still reject incomplete artifacts when extras are off.
     samples = split_root / "member4_xsa_reuse/samples.csv"
