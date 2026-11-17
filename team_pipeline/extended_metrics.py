@@ -6,6 +6,8 @@ LPIPS outputs are never modified. Lower is better for both metrics.
 
 - FID: Clean-FID Inception features of the manifest-listed ``image_NNNN.png``
   files against a directory of REAL images (``pip install clean-fid``).
+  ``build_imagenet_reference`` writes such a directory from ImageNet for the
+  generated classes (``pip install datasets``; gated, needs a Hugging Face login).
 - TPIPS: official embedding-model distance per factor (e.g. overall, shape,
   texture) against the matched ``original`` image (``pip install tpips``).
 
@@ -26,6 +28,82 @@ import warnings
 import numpy as np
 import pandas as pd
 import torch
+
+IMAGENET_DATASET = "ILSVRC/imagenet-1k"
+REFERENCE_RECORD = "reference.json"
+
+
+def _reference_labels(split_root):
+    """Classes and image size from the run's actual ``original`` generation manifest."""
+    manifest = json.loads((Path(split_root) / "original" / "manifest.json").read_text())
+    labels = sorted({int(label) for label, _ in manifest["pairs"]})
+    return labels, int(manifest["config"]["image_size"])
+
+
+def build_imagenet_reference(split_root, output_root="fid_references", images_per_class=50,
+                             dataset=IMAGENET_DATASET, split="validation", streaming=False):
+    """Write a real-image FID reference folder matching the generated classes.
+
+    Takes the first ``images_per_class`` images of every generated class from the
+    ImageNet ``split`` in dataset order, converts them to RGB, resizes them with
+    bicubic interpolation (keeping the aspect ratio), center-crops them to the
+    generated size and saves PNGs. The folder must lie outside the generated split.
+    ImageNet on the Hugging Face Hub is gated: log in first (``huggingface_hub.login()``,
+    ``huggingface-cli login`` or ``HF_TOKEN``) with an account that has access.
+
+    A complete existing folder with the same settings is reused without downloading.
+    Returns ``(folder, description)``; pass both to ``evaluate_fid_tpips``.
+    """
+    from PIL import Image as PILImage, ImageOps
+
+    if isinstance(images_per_class, bool) or not isinstance(images_per_class, int) or images_per_class < 1:
+        raise ValueError("images_per_class must be a positive integer")
+    split_root = Path(split_root).expanduser().resolve()
+    labels, image_size = _reference_labels(split_root)
+    tag = "_".join(map(str, labels))
+    if len(labels) > 16:  # Keep folder names short for large class sets (e.g. the fid split).
+        tag = f"{len(labels)}cls_" + hashlib.sha256(tag.encode()).hexdigest()[:12]
+    folder = Path(output_root).expanduser().resolve() / f"imagenet_{split}_{image_size}_{images_per_class}pc_{tag}"
+    if folder == split_root or split_root in folder.parents or folder in split_root.parents:
+        raise ValueError("FID reference must be outside the generated split directory")
+    description = (
+        f"{dataset} {split}; classes={labels}; {images_per_class} images per class "
+        f"(first in dataset order); RGB; aspect-preserving bicubic resize and center crop "
+        f"to {image_size}x{image_size}; saved as PNG."
+    )
+    expected = {f"class_{label:04d}_{i:04d}.png" for label in labels for i in range(images_per_class)}
+    record = dict(dataset=dataset, split=split, labels=labels, image_size=image_size,
+                  images_per_class=images_per_class, description=description)
+    record_path = folder / REFERENCE_RECORD
+    if record_path.exists() and json.loads(record_path.read_text()) == record:
+        if {p.name for p in folder.glob("*.png")} == expected:
+            print("Reusing complete reference folder:", folder)
+            return folder, description
+    stray = {p.name for p in folder.glob("*.png")} - expected if folder.exists() else set()
+    if stray:
+        raise ValueError(f"Reference folder contains unexpected images; move it aside: {folder}")
+
+    from datasets import load_dataset
+    ds = load_dataset(dataset, split=split, streaming=streaming, token=True)
+    folder.mkdir(parents=True, exist_ok=True)
+    record_path.unlink(missing_ok=True)  # Only a finished build is marked complete.
+    counts = {label: 0 for label in labels}
+    for example in ds:
+        label = int(example["label"])
+        if label not in counts or counts[label] >= images_per_class:
+            continue
+        image = ImageOps.fit(example["image"].convert("RGB"), (image_size, image_size),
+                             method=PILImage.Resampling.BICUBIC, centering=(0.5, 0.5))
+        image.save(folder / f"class_{label:04d}_{counts[label]:04d}.png")
+        counts[label] += 1
+        if all(count == images_per_class for count in counts.values()):
+            break
+    if any(count != images_per_class for count in counts.values()):
+        raise RuntimeError(f"Incomplete reference images: {counts}")
+    record_path.write_text(json.dumps(record, indent=2) + "\n")
+    print("Reference folder:", folder)
+    print("Images per class:", counts)
+    return folder, description
 
 
 def _extra_version(package):
@@ -126,6 +204,9 @@ def evaluate_fid_tpips(split_root, names, *, fid_reference_dir=None,
         reference = Path(fid_reference_dir).expanduser().resolve()
         if not reference.is_dir():
             raise FileNotFoundError(f"Real-image FID reference folder missing: {reference}")
+        record = reference / REFERENCE_RECORD
+        if not fid_reference_description and record.is_file():
+            fid_reference_description = json.loads(record.read_text()).get("description")
         if not fid_reference_description:
             raise ValueError("Describe the FID reference dataset, class mixture, split and preprocessing")
         if reference == root or root in reference.parents or reference in root.parents:

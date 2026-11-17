@@ -73,14 +73,23 @@ each manifest marks the XSA slots.
 Optional extra metrics on a finished, evaluated split (`team_pipeline/extended_metrics.py`):
 
 ```bash
-pip install clean-fid tpips "scipy<1.18"   # only the ones you enable
+pip install datasets clean-fid tpips "scipy<1.18"   # only the ones you enable
+huggingface-cli login   # account with access to the gated ILSVRC/imagenet-1k dataset
+python -m team_pipeline.cli fid-reference --output team_runs/pilot --split validation --images-per-class 50
 python -m team_pipeline.cli extended --output team_runs/pilot --split validation \
     --names original member1_removal member2_loop member3_damped member4_xsa_reuse \
-    --fid-reference-dir /path/to/real_images --fid-reference-description "ImageNet val, 8 classes, 256 center crop" \
+    --fid-reference-dir fid_references/imagenet_validation_256_50pc_88_207_279_360_387_417_974_979 \
     --tpips-factors overall shape texture
 ```
 
-Without `--fid-reference-dir` and `--tpips-factors` it only copies the LPIPS results.
+`fid-reference` reads the classes from the split's `original` manifest and saves the
+first N ImageNet validation images of each class (RGB, aspect-preserving bicubic
+resize, 256x256 center crop, PNG) to `fid_references/`, which git ignores. It records
+the settings and a description in `reference.json`, so `extended` needs no
+`--fid-reference-description` for that folder, and a complete folder is reused.
+It downloads the whole validation split (about 6 GB) unless you pass `--streaming`.
+For any other folder of real images, pass `--fid-reference-description`.
+Without `--fid-reference-dir` and `--tpips-factors`, `extended` only copies the LPIPS results.
 Outputs go to `results_extended.csv`, `paired_metrics_extended.csv` and
 `evaluation_extended.json`; the LPIPS files are not modified. Clean-FID here uses a
 folder of real images; for the final FID-500 study use the `fid` command below.

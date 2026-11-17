@@ -361,3 +361,66 @@ def test_real_sampler_runs_all_five_schedules(tmp_path, monkeypatch):
     assert summary.loc["member4_xsa_reuse", "lpips_mean"] != summary.loc["member2_loop", "lpips_mean"]
     assert summary.loc["member4_xsa_reuse", "unique_blocks"] == 6
     exp.comparison_grid(split_root, names, pairs)
+
+
+def _fake_imagenet(monkeypatch, labels, per_class, calls):
+    """Install a fake ``datasets`` module yielding non-square RGBA images in mixed order."""
+    from PIL import Image as PILImage
+
+    def load_dataset(name, split, streaming, token):
+        calls.append((name, split, streaming, token))
+        for i in range(per_class):
+            for label in [*labels, 999]:  # 999 is never generated: must be skipped.
+                yield dict(label=label, image=PILImage.new("RGBA", (40, 24), (label % 255, i, 0, 255)))
+
+    monkeypatch.setitem(sys.modules, "datasets", SimpleNamespace(load_dataset=load_dataset))
+
+
+def test_imagenet_reference_build_reuse_and_fid(tmp_path, monkeypatch):
+    from PIL import Image as PILImage
+    from team_pipeline import extended_metrics as em
+    names = ["original", "member1_removal", "member2_loop", "member3_damped", "member4_xsa_reuse"]
+    split_root = tmp_path / "run" / "validation"
+    _tiny_run(split_root, names, monkeypatch)
+    calls = []
+    _fake_imagenet(monkeypatch, [207, 360], 3, calls)
+    references = tmp_path / "refs"
+    with pytest.raises(ValueError, match="outside"):
+        em.build_imagenet_reference(split_root, split_root, images_per_class=2)
+    cli.main(["fid-reference", "--output", str(tmp_path / "run"), "--reference-root", str(references),
+              "--images-per-class", "2"])
+    folder = next(references.iterdir())
+    files = sorted(p.name for p in folder.glob("*.png"))
+    assert files == [f"class_{c:04d}_{i:04d}.png" for c in [207, 360] for i in range(2)]
+    with PILImage.open(folder / files[0]) as image:
+        assert image.mode == "RGB" and image.size == (8, 8)
+    record = json.loads((folder / "reference.json").read_text())
+    assert record["labels"] == [207, 360] and "center crop to 8x8" in record["description"]
+    assert calls == [("ILSVRC/imagenet-1k", "validation", False, True)]
+    # A complete folder is reused without touching the dataset.
+    assert em.build_imagenet_reference(split_root, references, images_per_class=2)[0] == folder
+    assert len(calls) == 1
+    with pytest.raises(RuntimeError, match="Incomplete"):
+        em.build_imagenet_reference(split_root, references, images_per_class=5)
+
+    # FID path with a fake Clean-FID; description comes from reference.json.
+    import numpy as np
+
+    def features(files, **kwargs):
+        return np.stack([np.r_[float(len(Path(f).name)), float(i), float(i * i % 7)]
+                         for i, f in enumerate(files)])
+
+    fid_module = SimpleNamespace(get_files_features=features,
+                                 fid_from_feats=lambda a, b: float(np.abs(a.mean(0) - b.mean(0)).sum()))
+    monkeypatch.setitem(sys.modules, "cleanfid", SimpleNamespace(fid=fid_module))
+    monkeypatch.setitem(sys.modules, "cleanfid.fid", fid_module)
+    monkeypatch.setitem(sys.modules, "cleanfid.features",
+                        SimpleNamespace(build_feature_extractor=lambda *a, **k: object()))
+    with pytest.warns(UserWarning, match="Small-sample"):
+        cli.main(["extended", "--output", str(tmp_path / "run"), "--names", *names,
+                  "--fid-reference-dir", str(folder)])
+    result = pd.read_csv(split_root / "results_extended.csv")
+    assert result["fid"].notna().all()
+    metadata = json.loads((split_root / "evaluation_extended.json").read_text())
+    assert metadata["fid"]["reference_description"] == record["description"]
+    assert metadata["fid"]["reference_images"] == 4

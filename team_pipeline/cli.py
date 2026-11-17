@@ -137,13 +137,26 @@ def main(argv=None):
     sub.add_argument("--split", choices=["validation", "test", "fid"], default="validation")
     sub.add_argument("--names", nargs="+", required=True)
     sub.add_argument("--fid-reference-dir", help="Folder of REAL images; enables Clean-FID")
-    sub.add_argument("--fid-reference-description", help="Dataset, split, class mixture, preprocessing")
+    sub.add_argument("--fid-reference-description",
+                     help="Dataset, split, class mixture, preprocessing (read from reference.json if omitted)")
     sub.add_argument("--fid-device", default="cpu")
     sub.add_argument("--fid-batch-size", type=int, default=16)
     sub.add_argument("--tpips-factors", nargs="*", default=[],
                      help="e.g. overall shape texture; enables TPIPS")
     sub.add_argument("--tpips-device", default="cuda:0")
     sub.add_argument("--tpips-model-path")
+    sub = subs.add_parser("fid-reference",
+                          help="Build a real ImageNet FID reference folder for the generated classes")
+    sub.add_argument("--output", required=True, help="Shared run directory")
+    sub.add_argument("--split", choices=["validation", "test", "fid"], default="validation",
+                     help="Generated split whose original manifest defines the classes")
+    sub.add_argument("--reference-root", default="fid_references",
+                     help="Parent folder for reference images (outside the run)")
+    sub.add_argument("--images-per-class", type=int, default=50)
+    sub.add_argument("--dataset", default="ILSVRC/imagenet-1k")
+    sub.add_argument("--dataset-split", default="validation")
+    sub.add_argument("--streaming", action="store_true",
+                     help="Stream instead of downloading the whole dataset split")
     args = parser.parse_args(argv)
     if args.command == "prepare":
         prepare(args)
@@ -156,6 +169,15 @@ def main(argv=None):
         else:
             print(metrics.fid_report(root, args.names, reference_stats=args.reference,
                                      device=args.device).to_string(index=False))
+        return
+    if args.command == "fid-reference":
+        from .extended_metrics import build_imagenet_reference
+        folder, description = build_imagenet_reference(
+            Path(args.output) / args.split, args.reference_root,
+            images_per_class=args.images_per_class, dataset=args.dataset,
+            split=args.dataset_split, streaming=args.streaming)
+        print("FID reference:", folder)
+        print("Description:", description)
         return
     if args.command == "extended":
         from .extended_metrics import evaluate_fid_tpips

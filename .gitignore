@@ -8,8 +8,9 @@ __pycache__/
 # macOS
 .DS_Store
 
-# Large downloads: DiT checkpoint, ADM reference statistics
+# Large downloads: DiT checkpoint, ADM reference statistics, real-image FID references
 checkpoints/
+fid_references/
 
 # Generated experiment outputs
 team_runs/
