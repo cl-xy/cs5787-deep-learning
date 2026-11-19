@@ -1,0 +1,95 @@
+{
+  "class_labels": [
+    0,
+    217,
+    482,
+    491,
+    497,
+    566,
+    569,
+    571,
+    574,
+    701
+  ],
+  "first_pairs": {
+    "calibration": [
+      [
+        0,
+        10000
+      ],
+      [
+        217,
+        10001
+      ],
+      [
+        482,
+        10002
+      ]
+    ],
+    "test": [
+      [
+        0,
+        10040
+      ],
+      [
+        217,
+        10041
+      ],
+      [
+        482,
+        10042
+      ]
+    ],
+    "validation": [
+      [
+        0,
+        10020
+      ],
+      [
+        217,
+        10021
+      ],
+      [
+        482,
+        10022
+      ]
+    ]
+  },
+  "last_pairs": {
+    "calibration": [
+      701,
+      10019
+    ],
+    "test": [
+      701,
+      15039
+    ],
+    "validation": [
+      701,
+      10039
+    ]
+  },
+  "protocol_sha256": "23a7f719fc70642e5051a80223282465f913c5ac4d22c910fbeaad71b8d5ac0e",
+  "settings": {
+    "architecture": "DiT-XL/2",
+    "batch_size_images": 1,
+    "cfg_scale": 4.0,
+    "checkpoint_sha256": "9ec1876e4c03471bca126663a30e2d1b20610b6d2f87850a39a36f25cc685521",
+    "deterministic_algorithms": true,
+    "dit_commit": "ed81ce2229091fd4ecc9a223645f95cf379d582b",
+    "dtype": "float32",
+    "image_size": 256,
+    "initial_noise_device": "cpu",
+    "sampler": "official ancestral p_sample_loop",
+    "sampler_seed_offset": 1000000,
+    "sampling_steps": 50,
+    "tf32": false,
+    "vae_id": "stabilityai/sd-vae-ft-mse",
+    "vae_revision": "31f26fdeee1355a5c34592e401dd41e45d25a493"
+  },
+  "split_sizes": {
+    "calibration": 20,
+    "test": 5000,
+    "validation": 20
+  }
+}

@@ -1,5 +1,7 @@
-"""Copy this file for each member's method; leave the shared pipeline unchanged."""
-from .methods import ScheduledBlocks
+"""Example custom method. Copy this file for each member's method; leave the shared
+pipeline unchanged. Use it from the notebook via ``bind_runner(...)(builder=build_model)``.
+"""
+from xsa_method import ScheduledBlocks
 
 
 def build_model(model, settings):
@@ -14,6 +16,6 @@ def build_model(model, settings):
         model.blocks.retained.values(),
         removed=settings["removed"],
         mode=settings.get("mode", "damped"),
-        alpha=settings.get("alpha", 0.5),
+        alpha=settings.get("alpha", "inverse_k"),
     )
     return model

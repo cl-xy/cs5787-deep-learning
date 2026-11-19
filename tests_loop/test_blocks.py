@@ -8,6 +8,7 @@ from torch import nn
 from loop_compression.blocks import LoopedBlocks
 from loop_compression.method import build_model
 from team_pipeline import experiment as exp
+from team_pipeline import sampling
 from team_pipeline.methods import ScheduledBlocks
 
 D = 8
@@ -81,7 +82,7 @@ def test_schedule_and_flops_scale_with_kept_blocks_times_loops():
             self.blocks = blocks
 
     blocks = make_blocks()
-    effective = lambda m: exp._effective_block_evaluations(m.blocks)
+    effective = lambda m: sampling._effective_block_evaluations(m.blocks)
     base = Model(LoopedBlocks(blocks, [3, 6], kept=[4, 5], K=1, strategy="naive"))
     twice = Model(LoopedBlocks(blocks, [3, 6], kept=[4, 5], K=2, strategy="naive"))
     layer = Model(LoopedBlocks(blocks, [3, 6], kept=[4, 5], K=3, strategy="damped", iteration="layer"))
