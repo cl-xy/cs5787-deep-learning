@@ -1,8 +1,9 @@
-"""Optional extra metrics on a finished, LPIPS-evaluated split: Clean-FID and TPIPS.
+"""Extra metrics on a finished, LPIPS-evaluated split: CLIP, Clean-FID and TPIPS.
 
 Run after ``python -m team_pipeline.cli evaluate`` has written ``results.csv`` and
 ``paired_metrics.csv``. Results go to separate ``*_extended`` files, so the base
-LPIPS outputs are never modified. Lower is better for both metrics.
+LPIPS outputs are never modified. FID/TPIPS are lower-is-better; CLIP cosines
+are higher-is-better.
 
 - FID: Clean-FID Inception features of the manifest-listed ``image_NNNN.png``
   files against a directory of REAL images (``pip install clean-fid``).
@@ -11,7 +12,11 @@ LPIPS outputs are never modified. Lower is better for both metrics.
 - TPIPS: official embedding-model distance per factor (e.g. overall, shape,
   texture) against the matched ``original`` image (``pip install tpips``).
 
-Both are opt-in. With both disabled, the LPIPS results are exported unchanged.
+- CLIP: raw image–text and paired image–image cosine using ViT-B/32.
+  Uses bounded image batches and records model, prompts and preprocessing.
+
+FID and TPIPS are opt-in. The CLI enables CLIP by default; direct callers pass
+``enable_clip=True``. With all disabled, LPIPS results are exported unchanged.
 For FID against the ADM ImageNet statistics on the ``fid`` split, use the
 ``fid`` subcommand (``team_pipeline/metrics.py``) instead.
 """
@@ -28,6 +33,8 @@ import warnings
 import numpy as np
 import pandas as pd
 import torch
+
+from .metrics import load_clip, imagenet_class_names, PROMPT
 
 IMAGENET_DATASET = "ILSVRC/imagenet-1k"
 REFERENCE_RECORD = "reference.json"
@@ -106,6 +113,60 @@ def build_imagenet_reference(split_root, output_root="fid_references", images_pe
     return folder, description
 
 
+def _append_clip_metrics(root, names, summary, paired, baseline, *, device="cpu", batch_size=16):
+    """Stream saved images; retain only small embeddings for paired comparisons."""
+    if not isinstance(batch_size, int) or batch_size < 1:
+        raise ValueError("CLIP batch_size must be a positive integer")
+    encode_image, encode_text, info = load_clip(device)
+    pairs = baseline["pairs"]
+    size = baseline["config"]["image_size"]
+    labels = sorted({label for label, seed in pairs})
+    class_names = imagenet_class_names()
+    prompts = [PROMPT.format(class_names[label]) for label in labels]
+
+    def normalized(features, count):
+        features = features.detach().float().cpu()
+        if (features.ndim != 2 or len(features) != count
+                or not torch.isfinite(features).all()
+                or (features.norm(dim=-1) <= 0).any()):
+            raise ValueError("Invalid CLIP embeddings")
+        return torch.nn.functional.normalize(features, dim=-1)
+
+    def image_features(name):
+        chunks = []
+        for start in range(0, len(pairs), batch_size):
+            images = torch.cat([_extra_read_image(root / name / f"image_{i:04d}.pt", size)
+                                for i in range(start, min(start + batch_size, len(pairs)))])
+            chunks.append(normalized(encode_image(images), len(images)))
+        return torch.cat(chunks)
+
+    try:
+        text = normalized(encode_text(prompts), len(prompts))
+        text = text[[labels.index(label) for label, seed in pairs]]
+        reference = image_features("original")
+        for name in names:
+            features = reference if name == "original" else image_features(name)
+            for column, target in [("clip_image_text_cosine", text),
+                                   ("clip_image_image_cosine", reference)]:
+                if features.shape != target.shape:
+                    raise ValueError("Mismatched CLIP embedding shapes")
+                scores = (features * target).sum(-1).clamp(-1, 1).numpy()
+                paired.loc[paired["variant"] == name, column] = scores
+                summary.loc[summary["variant"] == name, column + "_mean"] = float(scores.mean())
+                summary.loc[summary["variant"] == name, column + "_std"] = float(scores.std(ddof=1)) if len(scores) > 1 else 0.0
+        return dict(**info, higher_is_better=True, range=[-1, 1], prompt_template=PROMPT,
+                    prompts={str(label): prompt for label, prompt in zip(labels, prompts)},
+                    image_reference="original (matched label and seed)",
+                    preprocessing="saved FP32 RGB [-1,1]; bicubic 224x224; CLIP mean/std",
+                    device=device, batch_size=batch_size,
+                    interpretation="text alignment and semantic preservation; raw cosine, not 100x CLIPScore")
+    finally:
+        del encode_image, encode_text
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+
 def _extra_version(package):
     try:
         return importlib.metadata.version(package)
@@ -166,14 +227,15 @@ def evaluate_fid_tpips(split_root, names, *, fid_reference_dir=None,
                        fid_reference_description=None,
                        tpips_factors=("overall", "shape", "texture"),
                        fid_device="cpu", tpips_device="cuda:0",
-                       fid_batch_size=16, tpips_model_path=None):
-    """Append optional metrics to separate extended CSVs; lower is better for both.
+                       fid_batch_size=16, tpips_model_path=None,
+                       enable_clip=False, clip_device="cpu", clip_batch_size=16):
+    """Append metrics to extended CSVs: FID/TPIPS lower, CLIP cosine higher.
 
     FID uses pooled Clean-FID Inception features against a REAL-image directory.
     Only manifest-listed image_NNNN.png files are evaluated: grids are excluded.
     TPIPS uses official embedding-model distance against matched original images,
     from saved FP32 tensors with the explicit numeric range [-1, 1]. Prompts are
-    separate metrics. With both extras disabled, export the existing LPIPS results.
+    separate metrics. With all extras disabled, export the existing LPIPS results.
     Install optional metric dependencies only after the base LPIPS evaluation.
     """
     root = Path(split_root).expanduser().resolve()
@@ -185,17 +247,19 @@ def evaluate_fid_tpips(split_root, names, *, fid_reference_dir=None,
     if len(set(columns)) != len(columns) or "tpips_" in columns:
         raise ValueError("TPIPS factor names produce empty or colliding CSV column names")
     summary, paired, baseline, samples_by_name = _extra_read_artifacts(root, names)
-    if fid_reference_dir is None and not factors:
+    if fid_reference_dir is None and not factors and not enable_clip:
         print("FID and TPIPS disabled; exporting LPIPS results only.", flush=True)
     indices = samples_by_name["original"]["index"].tolist()
     size = baseline["config"]["image_size"]
     metadata = dict(
         generation_code_sha256=baseline["shared_code_sha256"],
         generation_runtime=baseline["runtime"], variants=names,
-        images_per_variant=len(indices), lower_is_better=True,
+        images_per_variant=len(indices),
+        metric_directions={"fid": "lower", "tpips": "lower",
+                           "clip_image_text_cosine": "higher", "clip_image_image_cosine": "higher"},
         packages={p: _extra_version(p) for p in ["torch", "torchvision", "numpy",
                    "scipy", "clean-fid", "tpips", "transformers", "pillow"]},
-        fid=None, tpips=None,
+        fid=None, tpips=None, clip=None,
     )
 
     if fid_reference_dir is not None:
@@ -294,6 +358,10 @@ def evaluate_fid_tpips(split_root, names, *, fid_reference_dir=None,
             metric="official model.distance (1 - cosine similarity)", device=tpips_device,
             interpretation="aspect-conditioned deviation from original, not absolute generation quality",
         )
+
+    if enable_clip:
+        metadata["clip"] = _append_clip_metrics(
+            root, names, summary, paired, baseline, device=clip_device, batch_size=clip_batch_size)
 
     # Preserve the original LPIPS evaluation files and generation measurements.
     summary.to_csv(root / "results_extended.csv", index=False)

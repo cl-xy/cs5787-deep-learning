@@ -49,6 +49,15 @@ calibration images instead.
   revision all pinned.
 - **Paired LPIPS (AlexNet):** distance from the original model's image for the same
   label and seed. Lower means closer to the original, not better quality.
+- **CLIP image–text cosine:** raw cosine between each generated image and
+  `a photo of a {ImageNet class name}`, using CLIP ViT-B/32. Higher is better.
+- **CLIP image–image cosine:** raw cosine against the original model image with
+  the same class and seed. Higher means greater semantic preservation, not absolute
+  image quality. Both CLIP metrics are enabled by default (`ENABLE_CLIP=True` in
+  section 8), run in batches of 16 on CPU, and are independent of the FID toggle.
+  First use downloads CLIP weights/tokenizer. Per-method means and sample standard
+  deviations are saved in `results_extended.csv`, per-image scores in
+  `paired_metrics_extended.csv`, and Section 12 includes them in tables and plots.
 - **FID (optional, off by default):** Set `ENABLE_FID = True` in section 8 to enable
   reference preparation and evaluation for validation and held-out test. With it off,
   reference downloads, Clean-FID installation and FID computation are skipped. Clean-FID compares against 5,000 real images, 500 per class from the
@@ -73,7 +82,7 @@ Run the sections in order:
 | 5 Prepare | checkpoint download and hash check; records protocol, code and environment | No |
 | 6 Select blocks | fixed `[4, 7]`, or calibration profiling | Optional |
 | 7A–7E Validation | one cell per method, 20 images each | Yes |
-| 8 Evaluation | paired LPIPS, Imagenette reference preparation, Clean-FID, comparison grid | No |
+| 8 Evaluation | paired LPIPS, both CLIP cosines, optional Clean-FID/reference preparation, comparison grid | No |
 | 9 Custom method | optional member-defined method | Yes |
 | 10 Held-out test | 5,000 images per method; off until `RUN_HELD_OUT_TEST = True` | Yes |
 | 11 Export | zip the run folder | No |

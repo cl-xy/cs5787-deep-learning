@@ -37,7 +37,7 @@ def test_colab_fid_toggle_controls_reference_and_evaluation(tmp_path, split, ena
         display=lambda _: None, Image=lambda **kw: None, FID_REAL_IMAGES_PER_CLASS=500,
     )
     exec(next(s for s in sources if s.startswith("# METRIC SETTINGS")), namespace)
-    namespace.update(ENABLE_FID=enabled, USE_IMAGENETTE_REFERENCE=automatic,
+    namespace.update(ENABLE_CLIP=False, ENABLE_FID=enabled, USE_IMAGENETTE_REFERENCE=automatic,
                      FID_REFERENCE_DIR=tmp_path / "cached", FID_REFERENCE_DESCRIPTION="cached")
     node = next(n for s in sources for n in ast.parse(s).body
                 if isinstance(n, ast.FunctionDef) and n.name == "evaluate_saved_split")
