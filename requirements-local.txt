@@ -11,6 +11,7 @@ matplotlib
 pillow
 pytest
 huggingface_hub
+transformers>=4.50,<5
 clean-fid
 scipy<1.18
 ipykernel

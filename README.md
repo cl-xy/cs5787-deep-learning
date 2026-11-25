@@ -172,6 +172,8 @@ both folders contain a `test_notebook.py`.
 ## No-loop block ablation studies
 
 Use a **new prepared run** after updating this code (restart notebook kernels).
+Install `transformers>=4.50,<5` before preparation; it is included in notebook
+setup and both requirements files. The runner checks for it before inference.
 The optional notebook section 13 and the module CLI use the same runner:
 
 ```bash
@@ -199,3 +201,23 @@ The sweep exports a block-aligned CSV and PNG/PDF versions of delta versus LPIPS
 block position versus LPIPS, and a combined two-row heatmap. Depth thirds are
 10/9/9 for 28 blocks (boundaries at 9.5 and 18.5); the heatmap uses separate color
 scales and annotates raw values. `report` redraws figures from saved artifacts.
+
+After the validation sweep, run cumulative top-R removal (no looping):
+
+```bash
+python -m team_pipeline.ablation topk --output "$RUN" --counts 1 2 3 4 6 8 12 16 20 24 28
+```
+
+Omit `--counts` to evaluate every R from 1 through 28. This deliberately removes
+**highest** single-block LPIPS first (the most disruptive blocks), as specified;
+ranking is frozen once from validation and ties favor smaller block indices.
+Each R removes a prefix of that same ranking; it does not rerank combinations.
+`--split test` reuses the validation ranking on held-out pairs.
+
+`ablations/topk/` records the ranking and per-split frozen plans. Each split's
+`analysis/` contains LPIPS and both CLIP curves including the intact R=0 baseline,
+a metrics CSV with adjacent LPIPS increase per additional removed block, and
+`largest_lpips_rise.json`. The largest positive slope is an exploratory candidate
+interval for a sharp rise, not a statistically confirmed threshold; inspect the
+curve and refine the tested counts around that interval in a new run. All three
+metrics also retain the existing evaluator's per-image scores and sample SDs.

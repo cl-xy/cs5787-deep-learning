@@ -125,3 +125,38 @@ def write_ablation_report(profile_root, split_root):
     for plot in (plot_feature_change_vs_lpips, plot_block_lpips, plot_block_ablation_heatmap):
         plot(frame, output)
     return frame
+
+
+def write_top_r_report(results, plan, output):
+    """Plot LPIPS and both CLIP scores, including R=0; export exploratory slopes."""
+    counts = {'original': 0, **{name: len(blocks) for name, blocks in plan.items()}}
+    if set(results.variant) != set(counts) or results.variant.duplicated().any():
+        raise ValueError('Top-R results must include the intact baseline and every planned count')
+    metrics = ['lpips_mean', 'clip_image_text_cosine_mean', 'clip_image_image_cosine_mean']
+    if not np.isfinite(results[metrics].to_numpy()).all():
+        raise ValueError('Top-R metrics must be finite')
+    table = results.copy()
+    table['R'] = table.variant.map(counts)
+    table = table.sort_values('R').reset_index(drop=True)
+    table['lpips_increase_per_block'] = table.lpips_mean.diff() / table.R.diff()
+    output = Path(output)
+    output.mkdir(parents=True, exist_ok=True)
+    table.to_csv(output / 'top_r_metrics.csv', index=False)
+    positive = table[table.lpips_increase_per_block > 0]
+    candidate = dict(R=None, previous_R=None, slope=None,
+                     interpretation='Largest positive adjacent LPIPS slope; exploratory, not a confirmed knee')
+    if not positive.empty:
+        index = positive.lpips_increase_per_block.idxmax()
+        candidate.update(R=int(table.loc[index, 'R']), previous_R=int(table.loc[index-1, 'R']),
+                         slope=float(table.loc[index, 'lpips_increase_per_block']))
+    (output / 'largest_lpips_rise.json').write_text(json.dumps(candidate, indent=2) + '\n')
+    fig = Figure(figsize=(15, 4), layout='constrained')
+    for ax, column, label in zip(fig.subplots(1, 3), metrics,
+                                 ['Paired LPIPS vs intact DiT', 'CLIP image–text cosine',
+                                  'CLIP image–image cosine vs intact DiT']):
+        ax.plot(table.R, table[column], 'o-')
+        ax.set(xlabel='Number of blocks removed R', ylabel=label)
+        ax.set_xticks(table.R)
+        ax.grid(alpha=0.2)
+    _save(fig, output, 'top_r_metrics')
+    return table

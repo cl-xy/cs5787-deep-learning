@@ -8,9 +8,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .ablation_report import depth_partitions, write_ablation_report
+from .ablation_report import (depth_partitions, load_block_ablation,
+                              write_ablation_report, write_top_r_report)
 from .evaluation import compare_results, _load_variant
-from .extended_metrics import evaluate_fid_tpips
+from .extended_metrics import evaluate_fid_tpips, package_version
 from .profiling import block_scores
 from .provenance import shared_code_hash
 from .runtime import write_json
@@ -38,6 +39,21 @@ def single_removal_plan(scores):
     for name, group in zip(('early', 'middle', 'late'), depth_partitions(len(scores))):
         plan[f'C_{name}'] = [int(group[(len(group) - 1) // 2])]
     return plan
+
+
+def top_r_plan(sweep, counts):
+    """Freeze descending single-block LPIPS, then remove nested ranking prefixes."""
+    depth = len(sweep)
+    if sorted(sweep.block.tolist()) != list(range(depth)):
+        raise ValueError('Ranking requires every block exactly once')
+    if not np.isfinite(sweep.lpips_mean).all():
+        raise ValueError('Ranking LPIPS must be finite')
+    counts = list(counts)
+    if (not counts or any(type(r) is not int or not 1 <= r <= depth for r in counts)
+            or counts != sorted(set(counts))):
+        raise ValueError('Removal counts must be increasing unique integers from 1 to depth')
+    ranking = sweep.sort_values(['lpips_mean', 'block'], ascending=[False, True]).block.astype(int).tolist()
+    return {f'top_r_{r:02d}': sorted(ranking[:r]) for r in counts}, ranking
 
 
 def _freeze(path, payload):
@@ -104,31 +120,51 @@ def study_profile(root, config, calibration_pairs):
 def run_study(args):
     """Notebook/CLI entry point using the prepared run's checked configuration."""
     from .runs import load_run
+    if args.study != 'report' and package_version('transformers') == 'not-installed':
+        raise RuntimeError('CLIP requires transformers>=4.50,<5. Install it before preparing '
+                           'a new run, then restart the kernel; no sampling was started.')
     root, protocol, config = load_run(args)
     if args.study == 'report':
         return write_ablation_report(root / 'ablations/profile', root / 'ablations/sweep/validation')
     profile, scores = study_profile(root, config, protocol['splits']['calibration'])
+    evidence = scores[['block', 'mean_feature_change']].to_dict('records')
     if args.study == 'sweep':
         if args.split != 'validation':
             raise ValueError('Single-block ranking sweep uses validation only')
         plan = {f'remove_{i:02d}': [i] for i in range(len(scores))}
+    elif args.study == 'topk':
+        sweep_root = root / 'ablations/sweep/validation'
+        sweep = load_block_ablation(profile, sweep_root)
+        reference = json.loads((sweep_root / 'original/manifest.json').read_text())
+        if (reference['config'] != config or reference['pairs'] != protocol['splits']['validation']
+                or reference['shared_code_sha256'] != shared_code_hash()):
+            raise ValueError('Ranking sweep does not match this prepared validation run')
+        counts = getattr(args, 'counts', None)
+        plan, ranking = top_r_plan(sweep, list(range(1, len(scores) + 1)) if counts is None else counts)
+        evidence = dict(ranking=ranking, source_split='validation', order='descending LPIPS',
+                        scores=sweep[['block', 'lpips_mean']].to_dict('records'), config=config)
+        ranking_path = root / 'ablations/topk/ranking.json'
+        ranking_path.parent.mkdir(parents=True, exist_ok=True)
+        _freeze(ranking_path, evidence)
     else:
         plan = single_removal_plan(scores)
     output = root / 'ablations' / args.study / args.split
-    names = run_plan(config, protocol['splits'][args.split], output, plan,
-                     evidence=scores[['block', 'mean_feature_change']].to_dict('records'))
+    names = run_plan(config, protocol['splits'][args.split], output, plan, evidence=evidence)
     result = evaluate_plan(output, names)
     if args.study == 'sweep':
         write_ablation_report(profile, output)
+    elif args.study == 'topk':
+        write_top_r_report(result, plan, output / 'analysis')
     return result
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('study', choices=['sweep', 'rules', 'report'])
+    parser.add_argument('study', choices=['sweep', 'rules', 'topk', 'report'])
     parser.add_argument('--output', required=True, help='Prepared run root')
     parser.add_argument('--repo', default='third_party/DiT')
     parser.add_argument('--split', choices=['validation', 'test'], default='validation')
+    parser.add_argument('--counts', type=int, nargs='+', help='Top-R counts; default 1 through depth')
     args = parser.parse_args(argv)
     print(run_study(args).to_string(index=False))
 

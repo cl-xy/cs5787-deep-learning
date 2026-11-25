@@ -104,3 +104,68 @@ def test_plan_generates_matched_no_loop_variants_and_checks_resume(tiny_run):
     (output / 'first/image_0000.pt').unlink()
     with pytest.raises(ValueError, match='Incomplete'):
         run_plan(TINY_CONFIG, TINY_PAIRS, output, plan)
+
+
+def test_top_r_uses_descending_frozen_scores_and_nested_sets():
+    from team_pipeline.ablation import top_r_plan
+    sweep = pd.DataFrame(dict(block=[2, 0, 1], lpips_mean=[0.5, 0.1, 0.5]))
+    plan, ranking = top_r_plan(sweep, [1, 2, 3])
+    assert ranking == [1, 2, 0]
+    assert plan == {'top_r_01': [1], 'top_r_02': [1, 2], 'top_r_03': [0, 1, 2]}
+    for counts in ([0], [4], [2, 1], [1, 1], [1.5], []):
+        with pytest.raises(ValueError, match='counts'):
+            top_r_plan(sweep, counts)
+    with pytest.raises(ValueError, match='finite'):
+        top_r_plan(sweep.assign(lpips_mean=np.inf), [1])
+
+
+def test_top_r_report_includes_baseline_and_adjacent_slopes(tmp_path):
+    frame = pd.DataFrame(dict(variant=['top_r_03', 'original', 'top_r_01'],
+                             lpips_mean=[0.6, 0, 0.1],
+                             clip_image_text_cosine_mean=[0.1, 0.3, 0.2],
+                             clip_image_image_cosine_mean=[0.4, 1, 0.9]))
+    table = report.write_top_r_report(frame, {'top_r_01': [2], 'top_r_03': [0, 1, 2]}, tmp_path)
+    assert table.R.tolist() == [0, 1, 3]
+    assert table.lpips_increase_per_block.iloc[1:].tolist() == [0.1, 0.25]
+    assert (tmp_path / 'top_r_metrics.png').is_file()
+    assert json.loads((tmp_path / 'largest_lpips_rise.json').read_text())['R'] == 3
+
+
+def test_sweep_rules_and_top_r_end_to_end_with_tiny_models(tiny_run, monkeypatch):
+    from types import SimpleNamespace
+    import torch
+    from team_pipeline import ablation, extended_metrics, runs
+    from team_pipeline.evaluation import compare_results
+    config = dict(device='cpu', image_size=8, cfg_scale=4, sampling_steps=2)
+    pairs = [[1, 10], [2, 20]]
+    protocol = {'splits': {'validation': pairs, 'calibration': [[1, 30], [2, 40]]}}
+    monkeypatch.setattr(runs, 'load_run', lambda args: (tiny_run, protocol, config))
+    monkeypatch.setattr(ablation, 'package_version', lambda package: 'test-encoder')
+    profile = tiny_run / 'ablations/profile'
+    profile.mkdir(parents=True)
+    pd.DataFrame(dict(block=range(4), timestep=[9]*4, mean_cfg=[.1, .4, .2, .3])).to_csv(
+        profile / 'feature_changes.csv', index=False)
+    # Exercise real aggregation and pair checks with lightweight metric encoders.
+    monkeypatch.setattr(ablation, 'compare_results', lambda root, names:
+                        compare_results(root, names, metric=lambda x, y: (x-y).square().mean()))
+    monkeypatch.setattr(extended_metrics, 'load_clip', lambda device: (
+        lambda images: torch.stack([images.mean((1, 2, 3)), torch.ones(len(images))], dim=1),
+        lambda prompts: torch.ones(len(prompts), 2), {'model': 'tiny'}))
+    for study in ['sweep', 'rules', 'topk']:
+        result = ablation.run_study(SimpleNamespace(study=study, split='validation', counts=[1, 2, 4]))
+        assert {'lpips_mean', 'clip_image_text_cosine_mean',
+                'clip_image_image_cosine_mean'} <= set(result.columns)
+        assert result.loc[result.variant == 'original', 'lpips_mean'].item() == 0
+    assert result.block_evaluations_per_forward.tolist() == [4, 3, 2, 0]
+    ranking = json.loads((tiny_run / 'ablations/topk/ranking.json').read_text())
+    assert ranking['source_split'] == 'validation'
+    assert ranking['ranking'] == [0, 1, 2, 3]  # equal single-removal scores: stable ties
+    assert (tiny_run / 'ablations/sweep/validation/analysis/block_ablation_heatmap.png').exists()
+
+
+def test_missing_clip_dependency_fails_before_loading_run(monkeypatch):
+    from types import SimpleNamespace
+    from team_pipeline import ablation
+    monkeypatch.setattr(ablation, 'package_version', lambda package: 'not-installed')
+    with pytest.raises(RuntimeError, match='before preparing'):
+        ablation.run_study(SimpleNamespace(study='sweep'))
