@@ -52,3 +52,12 @@ def test_analysis_requires_complete_finite_sweep(tmp_path):
     results.to_csv(root / 'results.csv', index=False)
     with pytest.raises(ValueError, match='finite'):
         report.load_block_ablation(profile, root)
+
+
+def test_depth_thirds_cover_all_blocks_and_position_plot(tmp_path):
+    groups = report.depth_partitions(28)
+    assert [len(g) for g in groups] == [10, 9, 9]
+    assert np.concatenate(groups).tolist() == list(range(28))
+    profile, root = artifacts(tmp_path)
+    paths = report.plot_block_lpips(report.load_block_ablation(profile, root), tmp_path)
+    assert paths['png'].read_bytes().startswith(b'\x89PNG')

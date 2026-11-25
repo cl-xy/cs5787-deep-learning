@@ -65,3 +65,32 @@ def plot_feature_change_vs_lpips(frame, output):
            ylabel='Paired LPIPS vs intact DiT after removal',
            title='Single-block removal: feature change vs perceptual deviation')
     return _save(fig, output, 'feature_change_vs_lpips')
+
+
+def depth_partitions(depth):
+    """Three contiguous thirds; indivisible remainder goes to earlier partitions."""
+    if not isinstance(depth, int) or depth < 3:
+        raise ValueError('Depth must be an integer of at least three')
+    return np.array_split(np.arange(depth), 3)
+
+
+def _mark_partitions(ax, depth):
+    groups = depth_partitions(depth)
+    for name, group in zip(('early', 'middle', 'late'), groups):
+        ax.text(float(group.mean()), 1.01, name, transform=ax.get_xaxis_transform(),
+                ha='center', va='bottom')
+    for group in groups[:-1]:
+        ax.axvline(group[-1] + 0.5, color='gray', linestyle='--', linewidth=1)
+    ax.set_xlim(-0.5, depth - 0.5)
+
+
+def plot_block_lpips(frame, output):
+    """Depth-wise removal LPIPS with early/middle/late boundaries."""
+    frame = frame.sort_values('block')
+    fig = Figure(figsize=(11, 5), layout='constrained')
+    ax = fig.subplots()
+    ax.plot(frame.block, frame.lpips_mean, 'o-')
+    ax.set(xlabel='Block removed (zero based)', ylabel='Paired LPIPS vs intact DiT')
+    ax.set_xticks(frame.block)
+    _mark_partitions(ax, len(frame))
+    return _save(fig, output, 'block_removal_lpips')
