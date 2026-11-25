@@ -9,6 +9,7 @@ import torch
 from torch import nn
 
 from team_pipeline import experiment as exp
+from team_pipeline import sampling
 from team_pipeline.data import (initial_latent, load_protocol, make_protocol,
                                 preprocess_image, protocol_hash, validate_pairs)
 
@@ -61,9 +62,9 @@ def test_shared_runner_and_evaluator_reject_incomplete_or_mismatched_runs(tmp_pa
     # The actual save/load, manifest, timing and evaluation code runs unchanged.
     vae = nn.Linear(1, 1)
     vae.config = SimpleNamespace()
-    monkeypatch.setattr(exp, "_prepare", lambda *a: (Tiny(), vae, None))
-    monkeypatch.setattr(exp, "warmup", lambda *a: None)
-    monkeypatch.setattr(exp, "generate", lambda model, vae, diffusion, label, seed, cfg:
+    monkeypatch.setattr(sampling, "_prepare", lambda *a: (Tiny(), vae, None))
+    monkeypatch.setattr(sampling, "warmup", lambda *a: None)
+    monkeypatch.setattr(sampling, "generate", lambda model, vae, diffusion, label, seed, cfg:
                         torch.full((1, 3, 8, 8), seed / 100))
     config = dict(device="cpu", image_size=8, cfg_scale=4)
     pairs = [(1, 10), (2, 20)]
@@ -98,7 +99,7 @@ def test_shared_runner_and_evaluator_reject_incomplete_or_mismatched_runs(tmp_pa
 def test_custom_builder_keeps_shared_preparation_and_freezes_model(monkeypatch):
     import sys
     import types
-    monkeypatch.setattr(exp, "load_model", lambda *a: Tiny())
+    monkeypatch.setattr(sampling, "load_model", lambda *a: Tiny())
     vae = nn.Linear(1, 1)
     factory = types.SimpleNamespace(from_pretrained=lambda *a, **k: vae)
     monkeypatch.setitem(sys.modules, "diffusers", types.SimpleNamespace(AutoencoderKL=factory))
@@ -108,7 +109,7 @@ def test_custom_builder_keeps_shared_preparation_and_freezes_model(monkeypatch):
         seen.append(model)
         model.blocks = exp.ScheduledBlocks(model.blocks.retained.values(), [1], "damped", .25)
         return model
-    model, loaded_vae, diffusion = exp._prepare(dict(device="cpu", checkpoint="unused",
+    model, loaded_vae, diffusion = sampling._prepare(dict(device="cpu", checkpoint="unused",
         vae_id="unused", sampling_steps=50), "original", (), .5, builder)
     assert seen == [model] and not model.training
     assert all(not p.requires_grad for p in model.parameters())
@@ -145,26 +146,3 @@ def test_dit_flop_estimate_tracks_effective_schedule():
     assert no_op["dit_sampling_flops"] == reduced["dit_sampling_flops"]
     with pytest.raises(ValueError, match="positive"):
         exp.estimate_dit_flops(original, sampling_steps=0)
-
-
-def test_mac_notebook_bootstrap_ships_identical_shared_files():
-    import ast
-    from pathlib import Path
-    root = Path(__file__).resolve().parents[1]
-    for name in ["DiT_Layer_Looping_Mac.ipynb"]:
-        notebook = json.loads((root / name).read_text())
-        found = False
-        for cell in notebook["cells"]:
-            source = "".join(cell["source"])
-            if cell["cell_type"] != "code":
-                continue
-            # Compile every cell, including the updated protocol settings.
-            tree = ast.parse(source)
-            for node in tree.body:
-                if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "FILES" for t in node.targets):
-                    files = ast.literal_eval(node.value)
-                    for path in (root / "team_pipeline").glob("*.py"):
-                        assert files[str(path.relative_to(root))] == path.read_text()
-                    assert files["team_protocol.json"] == (root / "team_protocol.json").read_text()
-                    found = True
-        assert found

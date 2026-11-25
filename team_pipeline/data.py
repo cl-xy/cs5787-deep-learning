@@ -8,6 +8,38 @@ from pathlib import Path
 
 import torch
 
+NUM_IMAGENET_CLASSES = 1000
+IMAGE_SIZE = 256
+LATENT_SHAPE = (1, 4, 32, 32)
+FIRST_SEED = 10_000
+# generate() seeds the sampler with ``seed + SAMPLER_SEED_OFFSET`` so the initial
+# noise and the per-step noise never share a generator state.
+SAMPLER_SEED_OFFSET = 1_000_000
+MAX_SEED = 2**63 - SAMPLER_SEED_OFFSET  # exclusive upper bound for image seeds
+
+# Pinned external inputs shared by every run (checked again by prepare/load_run).
+DIT_COMMIT = "ed81ce2229091fd4ecc9a223645f95cf379d582b"
+VAE_ID = "stabilityai/sd-vae-ft-mse"
+VAE_REVISION = "31f26fdeee1355a5c34592e401dd41e45d25a493"
+CHECKPOINT_SHA256 = "9ec1876e4c03471bca126663a30e2d1b20610b6d2f87850a39a36f25cc685521"
+
+# Imagenette v2: original ImageNet-1K ids, synsets and names (NOT local ids 0..9).
+# Source: https://github.com/fastai/imagenette
+IMAGENETTE_CLASSES = (
+    (0, "n01440764", "tench"),
+    (217, "n02102040", "English springer"),
+    (482, "n02979186", "cassette player"),
+    (491, "n03000684", "chain saw"),
+    (497, "n03028079", "church"),
+    (566, "n03394916", "French horn"),
+    (569, "n03417042", "garbage truck"),
+    (571, "n03425413", "gas pump"),
+    (574, "n03445777", "golf ball"),
+    (701, "n03888257", "parachute"),
+)
+# The single class array used by every generation method and split.
+CLASS_LABELS = tuple(label for label, _synset, _name in IMAGENETTE_CLASSES)
+
 
 def validate_pairs(pairs):
     """Return nonempty, unique ImageNet (label, seed) pairs without silent coercion."""
@@ -18,7 +50,7 @@ def validate_pairs(pairs):
         label, seed = pair
         if any(isinstance(v, bool) or not isinstance(v, Integral) for v in pair):
             raise ValueError("Labels and seeds must be integers")
-        if not 0 <= label < 1000 or not 0 <= seed < 2**63 - 1_000_000:
+        if not 0 <= label < NUM_IMAGENET_CLASSES or not 0 <= seed < MAX_SEED:
             raise ValueError("Invalid ImageNet label or seed")
         result.append((int(label), int(seed)))
     if not result or len(set(result)) != len(result):
@@ -49,7 +81,7 @@ def make_protocol(labels=(207, 360, 387, 974, 88, 979, 417, 279),
     if isinstance(fid_per_class, bool) or not isinstance(fid_per_class, Integral) or fid_per_class < 0:
         raise ValueError("fid_per_class must be a nonnegative integer")
     splits = {}
-    next_seed = 10_000
+    next_seed = FIRST_SEED
     for name, count in zip(REQUIRED_SPLITS, counts):
         pairs = [(label, next_seed + i) for i, label in
                  enumerate(label for _ in range(count) for label in labels)]
@@ -57,21 +89,25 @@ def make_protocol(labels=(207, 360, 387, 974, 88, 979, 417, 279),
         next_seed += len(pairs)
     if fid_per_class:
         pairs = [(label, next_seed + i) for i, label in
-                 enumerate(label for _ in range(fid_per_class) for label in range(1000))]
+                 enumerate(label for _ in range(fid_per_class)
+                           for label in range(NUM_IMAGENET_CLASSES))]
         splits["fid"] = [list(pair) for pair in validate_pairs(pairs)]
-    return dict(version=1, settings=dict(image_size=256, architecture="DiT-XL/2",
-                sampling_steps=50, cfg_scale=4.0, sampler="official ancestral p_sample_loop",
-                dtype="float32", tf32=False, deterministic_algorithms=True,
-                batch_size_images=1, initial_noise_device="cpu", sampler_seed_offset=1_000_000,
-                vae_id="stabilityai/sd-vae-ft-mse",
-                vae_revision="31f26fdeee1355a5c34592e401dd41e45d25a493",
-                dit_commit="ed81ce2229091fd4ecc9a223645f95cf379d582b",
-                checkpoint_sha256="9ec1876e4c03471bca126663a30e2d1b20610b6d2f87850a39a36f25cc685521"),
-                splits=splits)
+    settings = dict(
+        image_size=IMAGE_SIZE, architecture="DiT-XL/2", sampling_steps=50, cfg_scale=4.0,
+        sampler="official ancestral p_sample_loop", dtype="float32", tf32=False,
+        deterministic_algorithms=True, batch_size_images=1, initial_noise_device="cpu",
+        sampler_seed_offset=SAMPLER_SEED_OFFSET, vae_id=VAE_ID, vae_revision=VAE_REVISION,
+        dit_commit=DIT_COMMIT, checkpoint_sha256=CHECKPOINT_SHA256,
+    )
+    return dict(version=1, settings=settings, splits=splits)
 
 
-def load_protocol(path):
-    protocol = json.loads(Path(path).read_text())
+def load_protocol(source):
+    """Validate a protocol given as a JSON file path or an in-memory dict (deep-copied)."""
+    if isinstance(source, dict):
+        protocol = json.loads(json.dumps(source))
+    else:
+        protocol = json.loads(Path(source).read_text())
     names = set(protocol.get("splits", {}))
     if (protocol.get("version") != 1 or not set(REQUIRED_SPLITS) <= names
             or names - set(REQUIRED_SPLITS) - set(OPTIONAL_SPLITS)):
@@ -85,32 +121,36 @@ def load_protocol(path):
             raise ValueError(f"Seed leakage into {name}")
         all_seeds |= seeds
     settings = protocol["settings"]
-    if settings["image_size"] != 256 or settings["architecture"] != "DiT-XL/2":
+    if settings["image_size"] != IMAGE_SIZE or settings["architecture"] != "DiT-XL/2":
         raise ValueError("This protocol supports DiT-XL/2 at 256 pixels")
     if settings.get("tf32") is not False or settings.get("deterministic_algorithms") is not True:
         raise ValueError("Use deterministic FP32 settings with TF32 disabled")
     if settings["dtype"] != "float32" or settings["sampler"] != "official ancestral p_sample_loop":
         raise ValueError("Unsupported dtype or sampler")
-    if settings.get("sampler_seed_offset") != 1_000_000 or settings.get("initial_noise_device") != "cpu" or settings.get("batch_size_images") != 1:
+    if (settings.get("sampler_seed_offset") != SAMPLER_SEED_OFFSET
+            or settings.get("initial_noise_device") != "cpu"
+            or settings.get("batch_size_images") != 1):
         raise ValueError("Unsupported input noise or batch settings")
     steps = settings["sampling_steps"]
     if isinstance(steps, bool) or not isinstance(steps, int) or not 2 <= steps <= 1000:
         raise ValueError("sampling_steps must be an integer between 2 and 1000")
-    if not isinstance(settings["cfg_scale"], (float, int)) or not 0 <= settings["cfg_scale"] < float("inf"):
+    cfg_scale = settings["cfg_scale"]
+    if not isinstance(cfg_scale, (float, int)) or not 0 <= cfg_scale < float("inf"):
         raise ValueError("cfg_scale must be finite and nonnegative")
-    if not settings.get("vae_revision") or not settings.get("dit_commit") or not settings.get("checkpoint_sha256"):
+    if not all(settings.get(key) for key in ("vae_revision", "dit_commit", "checkpoint_sha256")):
         raise ValueError("Pin source, checkpoint and VAE revisions")
     return protocol
 
 
 def protocol_hash(protocol):
-    return hashlib.sha256(json.dumps(protocol, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    canonical = json.dumps(protocol, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 def initial_latent(seed, device):
     """Same CPU FP32 initial noise on all machines; transfer only after generation."""
-    return torch.randn((1, 4, 32, 32), dtype=torch.float32,
-                       generator=torch.Generator(device="cpu").manual_seed(int(seed))).to(device)
+    generator = torch.Generator(device="cpu").manual_seed(int(seed))
+    return torch.randn(LATENT_SHAPE, dtype=torch.float32, generator=generator).to(device)
 
 
 def preprocess_image(image, expected_size=None):

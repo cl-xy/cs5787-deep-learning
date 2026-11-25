@@ -13,11 +13,33 @@ built from them is in [report/](report/) ([PDF](report/interim_report.pdf)).
 
 ## Main experiments: `DiT_Layer_Looping_colab.ipynb`
 
-The notebook is self-contained. It defines the whole pipeline in its own cells, so it
-does not import this repository's Python packages. It needs internet access only for the
-official DiT source, the pretrained checkpoint, the VAE and the real-image FID reference.
-Upload it on its own to Colab, or run it from the repository root in a local Python
-environment.
+The notebook is a thin driver: it defines **no functions**. It sets up the
+environment, imports the shared pipeline from [team_pipeline/](team_pipeline/) and the
+method code from [xsa_method/](xsa_method/), holds the experiment settings, and calls
+them. Run it from the repository root locally. In Colab, setup can clone the project:
+set `PROJECT_REF` to a branch or commit containing `team_pipeline/runs.py`, or upload
+the updated project. Unpublished local changes must be uploaded or pushed before Colab
+can use them. The official DiT source, pretrained checkpoint, VAE and real-image FID
+reference also require internet downloads.
+
+**Where code lives:** common pipeline code (protocol, sampling, evaluation, metrics,
+reports, run preparation) is in `team_pipeline/`; code specific to XSA or to the
+method runner (attention filtering, block schedules, checkpoint restoration, frozen
+block selection, method routing) is in `xsa_method/`; window looping is in
+`loop_compression/`. New helper functions go in one of these packages, not in a
+notebook cell. See [xsa_method/README.md](xsa_method/README.md) and the module table
+below.
+
+**Run fingerprint.** `prepare` stores a SHA-256 of the pipeline source in
+`config.json` (and the files themselves in `code_sources.json`); every later step
+refuses to run if the code differs. The sources are copied **when the packages are
+imported**, so editing a file without restarting the kernel does not change the
+fingerprint of the code that is actually running. After changing package code,
+restart the kernel, rerun sections 1–4 and prepare a **new run**. Runs prepared
+before this refactor (notebook-cell fingerprint, `notebook_sources.json`) cannot be
+resumed; section 12 can still plot their saved artifacts. Plotting, the CLI and
+the optional FID/CLIP code are not fingerprinted, so editing them does not
+invalidate a prepared run.
 
 ### Methods
 
@@ -64,8 +86,8 @@ Run the sections in order:
 | Section | What it does | Generates images? |
 | --- | --- | --- |
 | 1 Setup | workspace, optional Google Drive storage, dependencies | No |
-| 2 Definitions | pipeline, protocol, methods, XSA and tests as notebook cells | No |
-| 3 Run tests | CPU contract tests with tiny models | No |
+| 2 Imports | package imports and protocol constants (no function definitions) | No |
+| 3 Run tests | `tests_team/` and `tests_xsa/`, using tiny CPU models | No |
 | 4 Configure | device (CUDA, then Apple MPS, then CPU), pinned DiT source, run folder | No |
 | 5 Prepare | checkpoint download and hash check; records protocol, code and environment | No |
 | 6 Select blocks | fixed `[4, 7]`, or calibration profiling | Optional |
@@ -87,15 +109,16 @@ Run the sections in order:
 ## Other tools in the repository
 
 The repository also contains a scripted version of the pipeline and a second study.
-They use an earlier protocol (8 ImageNet classes; a 1,000-image `fid` split; fixed damping
+They share the notebook's code but default to an earlier protocol (8 ImageNet classes; a 1,000-image `fid` split; fixed damping
 `alpha = 0.5`). Where they differ from the notebook, the notebook is the reference for
 the main experiments.
 
 | Path | Contents |
 | --- | --- |
-| [team_pipeline/](team_pipeline/) | command-line runner: protocol (`data.py`), sampling and evaluation (`experiment.py`), block schedules (`methods.py`), XSA (`xsa.py`), FID/CLIP (`metrics.py`), Clean-FID/TPIPS (`extended_metrics.py`), CLI (`cli.py`) |
+| [xsa_method/](xsa_method/) | XSA method package used by the notebook and the CLI: attention, schedules, checkpoints, selection and `bind_runner` method routing |
+| [team_pipeline/](team_pipeline/) | shared pipeline used by the notebook and the command line: protocol and Imagenette classes (`data.py`), device/determinism helpers (`runtime.py`), profiling (`profiling.py`), sampling and `run_variant` (`sampling.py`), LPIPS evaluation (`evaluation.py`), Clean-FID/TPIPS and the Imagenette reference (`extended_metrics.py`, `imagenette.py`), report tables and figures (`report.py`), run preparation (`runs.py`), run fingerprint (`provenance.py`), notebook display helpers (`notebook.py`), FID/CLIP (`metrics.py`), CLI (`cli.py`). `experiment.py` only re-exports these for older imports |
 | [loop_compression/](loop_compression/) | window looping (Chen et al., arXiv 2605.23872): loop a kept subset of a contiguous block window K times with naive, damped or anchored updates; sensitivity screening, validation driver, final benchmark |
-| [DiT_Layer_Looping_GCP.ipynb](DiT_Layer_Looping_GCP.ipynb) | Colab entry point for the command-line pipeline and window-looping smoke tests |
+| [DiT_Layer_Looping_GCP.ipynb](DiT_Layer_Looping_GCP.ipynb) | Colab/GCP entry point for the command-line pipeline, window-looping smoke tests and the original pilot; imports `team_pipeline` |
 | [tests_team/](tests_team/), [tests_loop/](tests_loop/) | CPU tests with tiny models, no downloads |
 | `third_party/DiT` | official DiT source (git submodule, pinned commit) |
 | [TEAM_WORKFLOW.md](TEAM_WORKFLOW.md) | rules, every command and metric definitions for the command-line pipeline |
@@ -128,7 +151,8 @@ damped runs, FID-500 and CLIP score, timing, and custom methods.
 ### Tests
 
 ```bash
-DIT_TEST_REPO="$PWD/third_party/DiT" python -m pytest --import-mode=importlib -q tests_team tests_loop
+DIT_TEST_REPO="$PWD/third_party/DiT" python -m pytest --import-mode=importlib -q tests_xsa tests_team tests_loop
 ```
 
-The notebook runs its own test suite in section 3.
+The notebook runs `tests_team` and `tests_xsa` in section 3. Use `--import-mode=importlib`:
+both folders contain a `test_notebook.py`.

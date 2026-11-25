@@ -17,7 +17,8 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from team_pipeline import cli, experiment as exp, xsa
+from team_pipeline import cli, experiment as exp, sampling
+from xsa_method import attention as xsa
 from team_pipeline.extended_metrics import evaluate_fid_tpips
 from team_pipeline.methods import ScheduledBlocks
 from team_pipeline.xsa import xsa_attention_scope, xsa_filter_heads
@@ -242,15 +243,15 @@ def _tiny_run(split_root, names, monkeypatch):
     vae = nn.Linear(1, 1)
     vae.config = SimpleNamespace()
 
-    def prepare(config, mode, removed, alpha, model_transform=None):
+    def prepare(config, mode, removed, alpha, model_transform=None, schedule_cls=ScheduledBlocks):
         model = nn.Module()
         blocks = [nn.Linear(1, 1) for _ in range(8)]
-        model.blocks = ScheduledBlocks(blocks, removed, mode, alpha)
+        model.blocks = schedule_cls(blocks, removed, mode, alpha)
         return model, vae, None
 
-    monkeypatch.setattr(exp, "_prepare", prepare)
-    monkeypatch.setattr(exp, "warmup", lambda *a: None)
-    monkeypatch.setattr(exp, "generate", lambda model, vae, diffusion, label, seed, cfg:
+    monkeypatch.setattr(sampling, "_prepare", prepare)
+    monkeypatch.setattr(sampling, "warmup", lambda *a: None)
+    monkeypatch.setattr(sampling, "generate", lambda model, vae, diffusion, label, seed, cfg:
                         torch.full((1, 3, 8, 8), (seed % 100) / 100 + (len(model.blocks) - 8) / 50))
     config = dict(device="cpu", image_size=8, cfg_scale=4)
     pairs = [(207, 10016), (360, 10017)]
