@@ -49,7 +49,10 @@ calibration images instead.
   revision all pinned.
 - **Paired LPIPS (AlexNet):** distance from the original model's image for the same
   label and seed. Lower means closer to the original, not better quality.
-- **FID:** Clean-FID against 5,000 real images, 500 per class from the Imagenette v2
+- **FID (optional, off by default):** Set `ENABLE_FID = True` in section 8 to enable
+  reference preparation and evaluation for validation and held-out test. With it off,
+  reference downloads, Clean-FID installation and FID computation are skipped. Clean-FID compares against 5,000 real images, 500 per class from the
+  Imagenette v2
   training split. These are downloaded once through torchvision (about 1.5 GB) and
   center-cropped to 256. With 20 validation images, FID is exploratory.
 - **TPIPS (optional, off by default):** aspect-wise distance (overall, shape, texture)

@@ -11,6 +11,46 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
+@pytest.mark.parametrize("split", ["validation", "test"])
+@pytest.mark.parametrize("enabled,automatic", [(False, True), (False, False), (True, True), (True, False)])
+def test_colab_fid_toggle_controls_reference_and_evaluation(tmp_path, split, enabled, automatic):
+    """Disabling FID must bypass downloads/install even with a cached reference path."""
+    import pandas as pd
+    from unittest.mock import Mock
+
+    notebook = json.loads((ROOT / "DiT_Layer_Looping_colab.ipynb").read_text())
+    sources = ["".join(c["source"]) for c in notebook["cells"] if c["cell_type"] == "code"]
+    folder = tmp_path / split
+    (folder / "original").mkdir(parents=True)
+    (folder / "original/manifest.json").write_text(json.dumps({
+        "pairs": [[0, 42]], "config": {"image_size": 256}}))
+    prepared = Mock(return_value=(tmp_path / "prepared", "Imagenette"))
+    extended = Mock(return_value="summary")
+    install = Mock()
+    base = Mock()
+    namespace = dict(
+        WORKSPACE=tmp_path, select_device=lambda _: "cpu", RUN_ROOT=tmp_path,
+        NAMES=["original"], pd=pd, json=json,
+        prepare_imagenette_reference=prepared, evaluate_fid_tpips=extended,
+        evaluate_split=base, _extra_version=lambda _: "not-installed",
+        subprocess=SimpleNamespace(run=install), sys=SimpleNamespace(executable="python"),
+        display=lambda _: None, Image=lambda **kw: None, FID_REAL_IMAGES_PER_CLASS=500,
+    )
+    exec(next(s for s in sources if s.startswith("# METRIC SETTINGS")), namespace)
+    namespace.update(ENABLE_FID=enabled, USE_IMAGENETTE_REFERENCE=automatic,
+                     FID_REFERENCE_DIR=tmp_path / "cached", FID_REFERENCE_DESCRIPTION="cached")
+    node = next(n for s in sources for n in ast.parse(s).body
+                if isinstance(n, ast.FunctionDef) and n.name == "evaluate_saved_split")
+    exec(compile(ast.Module(body=[node], type_ignores=[]), "colab-evaluation", "exec"), namespace)
+    assert namespace["evaluate_saved_split"](split) == "summary"
+    base.assert_called_once_with(split, ["original"])
+    assert prepared.call_count == int(enabled and automatic)
+    assert install.call_count == int(enabled)
+    expected = (tmp_path / ("prepared" if automatic else "cached")) if enabled else None
+    assert extended.call_args.kwargs["fid_reference_dir"] == expected
+    assert extended.call_args.kwargs["tpips_factors"] == ()
+
+
 def notebook_code():
     notebook = json.loads((ROOT / "DiT_Layer_Looping_GCP.ipynb").read_text())
     return ["".join(cell["source"]) for cell in notebook["cells"] if cell["cell_type"] == "code"]
