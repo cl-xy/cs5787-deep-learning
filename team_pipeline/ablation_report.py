@@ -94,3 +94,34 @@ def plot_block_lpips(frame, output):
     ax.set_xticks(frame.block)
     _mark_partitions(ax, len(frame))
     return _save(fig, output, 'block_removal_lpips')
+
+
+def plot_block_ablation_heatmap(frame, output):
+    """Align feature change and removal LPIPS; separate color scales retain units."""
+    frame = frame.sort_values('block')
+    fig = Figure(figsize=(15, 5), layout='constrained')
+    axes = fig.subplots(2, 1)
+    for ax, column, label in zip(axes, ('mean_feature_change', 'lpips_mean'),
+                                  ('Normalized feature change Δ', 'Removal paired LPIPS')):
+        values = frame[column].to_numpy()[None, :]
+        image = ax.imshow(values, aspect='auto', cmap='YlOrRd', interpolation='nearest')
+        ax.set_yticks([0], [label])
+        ax.set_xticks(range(len(frame)), frame.block)
+        for index, value in enumerate(values[0]):
+            ax.text(index, 0, f'{value:.3f}', ha='center', va='center', fontsize=7,
+                    color='white' if image.norm(value) > 0.6 else 'black')
+        _mark_partitions(ax, len(frame))
+        fig.colorbar(image, ax=ax, label=label)
+    axes[-1].set_xlabel('Block removed (zero based)')
+    return _save(fig, output, 'block_ablation_heatmap')
+
+
+def write_ablation_report(profile_root, split_root):
+    """Export the joined table and all three requested plots without inference."""
+    frame = load_block_ablation(profile_root, split_root)
+    output = Path(split_root) / 'analysis'
+    output.mkdir(parents=True, exist_ok=True)
+    frame.to_csv(output / 'block_ablation.csv', index=False)
+    for plot in (plot_feature_change_vs_lpips, plot_block_lpips, plot_block_ablation_heatmap):
+        plot(frame, output)
+    return frame
