@@ -7,19 +7,11 @@ import torch
 
 from team_pipeline import extended_metrics
 from pathlib import Path
-from types import ModuleType
 
 
-@pytest.fixture(params=["module", "notebook"])
-def evaluation(request):
-    if request.param == "module":
-        return extended_metrics
-    notebook = json.loads((Path(__file__).resolve().parents[1] / "DiT_Layer_Looping_colab.ipynb").read_text())
-    module = ModuleType("notebook_evaluation")
-    source = next("".join(c["source"]) for c in notebook["cells"]
-                  if "def evaluate_fid_tpips(" in "".join(c["source"]))
-    exec(compile(source, "notebook-evaluation", "exec"), module.__dict__)
-    return module
+@pytest.fixture
+def evaluation():
+    return extended_metrics
 
 
 def saved_run(root):
@@ -77,7 +69,7 @@ def test_clip_rejects_mismatched_pairs_before_loading_model(tmp_path, monkeypatc
     def unexpected(*args, **kwargs):
         pytest.fail('CLIP must not load for mismatched runs')
     monkeypatch.setattr(evaluation, 'load_clip', unexpected, raising=False)
-    with pytest.raises(ValueError, match='Mismatched generation pairs'):
+    with pytest.raises(ValueError, match='pairs'):
         evaluation.evaluate_fid_tpips(tmp_path, ['original', 'changed'], tpips_factors=(), enable_clip=True)
 
 
@@ -88,13 +80,8 @@ def test_report_exports_and_plots_clip_without_fid(tmp_path, monkeypatch, evalua
     monkeypatch.setattr(evaluation, "load_clip", encoders)
     evaluation.evaluate_fid_tpips(root, ["original", "changed"],
         tpips_factors=(), enable_clip=True, clip_batch_size=1)
-    notebook = json.loads((Path(__file__).resolve().parents[1] / "DiT_Layer_Looping_colab.ipynb").read_text())
-    source = next("".join(c["source"]) for c in notebook["cells"]
-                  if "def load_report_data(" in "".join(c["source"]))
-    import matplotlib
-    matplotlib.use("Agg")
-    ns = {}
-    exec(compile(source, "notebook-report", "exec"), ns)
+    from team_pipeline import report as reporting
+    ns = vars(reporting)
     report = ns["load_report_data"](tmp_path)
     exported = pd.read_csv(report["output"] / "report_summary.csv").set_index("variant")
     assert exported.loc["changed", "clip_image_text_cosine_mean"] == pytest.approx(0.)

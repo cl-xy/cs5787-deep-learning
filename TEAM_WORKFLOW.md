@@ -1,9 +1,25 @@
 # Shared experiment workflow
 
-All three members use `team_pipeline/data.py` and `team_pipeline/experiment.py`.
-Only the method builder differs. The Mac notebook imports project code from
-`dit_looping` and embeds the required files for standalone use.
-For team comparisons, use the runner below: it adds protocol and environment checks.
+All three members use the shared `team_pipeline/` package (`data.py` protocol,
+`sampling.py`, `evaluation.py`, `runs.py`). Only the method builder differs. The
+Colab notebook and the command line import the same code; neither embeds a copy,
+and no helper package is generated at run time. For team comparisons, use the
+runner below or the notebook: both add protocol and environment checks.
+
+| Code that is... | Belongs in |
+| --- | --- |
+| common to every method (protocol, sampling, metrics, reports, run preparation) | `team_pipeline/` |
+| specific to XSA or the method runner (attention, schedules, selection, routing) | `xsa_method/` |
+| specific to window looping | `loop_compression/` |
+| a member's own method | a new module copied from `team_pipeline/example_method.py` |
+
+Do not define functions in notebook cells. Notebooks only import, configure and call.
+
+**Run fingerprint:** `prepare` records a hash of the pipeline source (`team_pipeline`
+sampling/evaluation modules plus `xsa_method`) taken at import time, and the files
+themselves in `code_sources.json`. Every later step and every comparison requires the
+same hash. Editing a file without restarting the kernel does not change it. After
+changing pipeline code, restart and `prepare` a new output root.
 
 ## What stays fixed
 
