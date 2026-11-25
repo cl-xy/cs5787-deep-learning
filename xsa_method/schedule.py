@@ -26,7 +26,7 @@ class ScheduledBlocks(nn.Module):
             raise ValueError("Removed index outside block range")
         if mode == "original" and self.removed:
             raise ValueError("Original model cannot have removed blocks")
-        if 0 in self.removed:
+        if 0 in self.removed and mode != "removal":
             raise ValueError("Keep block 0: a replacement needs a preceding retained block")
         self.retained = nn.ModuleDict({str(i): b for i, b in enumerate(blocks)
                                        if i not in self.removed})

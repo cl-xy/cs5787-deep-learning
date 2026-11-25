@@ -168,3 +168,34 @@ DIT_TEST_REPO="$PWD/third_party/DiT" python -m pytest --import-mode=importlib -q
 
 The notebook runs `tests_team` and `tests_xsa` in section 3. Use `--import-mode=importlib`:
 both folders contain a `test_notebook.py`.
+
+## No-loop block ablation studies
+
+Use a **new prepared run** after updating this code (restart notebook kernels).
+The optional notebook section 13 and the module CLI use the same runner:
+
+```bash
+python -m team_pipeline.ablation sweep --output "$RUN"
+python -m team_pipeline.ablation rules --output "$RUN"
+python -m team_pipeline.ablation report --output "$RUN"
+```
+
+`sweep` profiles intact calibration trajectories and removes each of the 28 blocks
+independently on validation pairs. `rules` fixes R=1: A removes minimum normalized
+feature change; B removes the immediate successor of the largest feature change
+among blocks with a successor; C removes the lower center of each depth third
+(blocks 4, 14, 23 for 28 blocks). Ties use the smaller block index. All runs disable
+layer reuse and use the intact DiT with identical class/seed/noise pairs as reference.
+Each study evaluates paired LPIPS and CLIP image–text and image–image cosine scores.
+
+Artifacts live under `ablations/{sweep,rules}/validation/`, separate from the main
+method comparison, with dedicated calibration under `ablations/profile/`. Plans
+are immutable. Rerunning skips complete, matching variants; incomplete variants
+must be moved aside before retrying. `rules --split test` uses the same calibration
+selection on held-out pairs. Full inference and first-use metric downloads can be
+expensive; none of these studies runs by default.
+
+The sweep exports a block-aligned CSV and PNG/PDF versions of delta versus LPIPS,
+block position versus LPIPS, and a combined two-row heatmap. Depth thirds are
+10/9/9 for 28 blocks (boundaries at 9.5 and 18.5); the heatmap uses separate color
+scales and annotates raw values. `report` redraws figures from saved artifacts.

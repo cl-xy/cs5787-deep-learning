@@ -18,7 +18,7 @@ from pathlib import Path
 from xsa_method import method_sources
 
 FINGERPRINTED_MODULES = ("data", "runtime", "profiling", "sampling", "evaluation",
-                         "methods", "xsa")
+                         "methods", "xsa", "ablation")
 
 _PACKAGE_DIR = Path(__file__).parent
 _SOURCES = {f"team_pipeline/{name}.py": (_PACKAGE_DIR / f"{name}.py").read_text()
