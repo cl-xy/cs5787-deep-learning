@@ -186,32 +186,57 @@ def save_denoising_analysis(result, output):
 
 
 def plot_denoising_analysis(result, output=None):
+    """Heatmap for depth sensitivity; aligned curves for recovery and pruning error."""
     import matplotlib.pyplot as plt
-    from matplotlib.colors import TwoSlopeNorm
     mean_a = result['ablation_mse'].mean(axis=0)
-    mean_r = result['recovery'].mean(axis=0)
-    mean_p = result['prune_mse'].mean(axis=0)[:, None]
-    fig, axes = plt.subplots(1, 3, figsize=(22, 8), gridspec_kw={'width_ratios': [2, 2, .55]}, constrained_layout=True)
-    limit = max(float(np.abs(mean_r).max()), 1e-12)
-    panels = [(mean_a, 'Single-block bypass: mean epsilon MSE', 'inferno', dict(vmin=0)),
-              (mean_r, 'Recovery: prune MSE − prune+loop MSE', 'RdBu', dict(norm=TwoSlopeNorm(vmin=-limit, vcenter=0, vmax=limit))),
-              (mean_p, 'Prune-only error', 'inferno', dict(vmin=0))]
+    recovery = result['recovery']
+    prune = result['prune_mse']
+    calls = np.arange(1, len(mean_a) + 1)
     ticks = np.unique(np.linspace(0, len(mean_a)-1, min(10, len(mean_a)), dtype=int))
-    for ax, (values, title, cmap, options) in zip(axes, panels):
-        im = ax.imshow(values, origin='upper', aspect='auto', interpolation='nearest', cmap=cmap, **options)
-        ax.set_title(title)
-        ax.set_yticks(ticks, [f'{i+1} (t={result["timesteps"][i]})' for i in ticks])
-        ax.set_ylabel('Denoising call: high noise (top) → low noise (bottom)')
-        fig.colorbar(im, ax=ax, label='Mean epsilon MSE' if ax is not axes[1] else 'Recovery (positive = closer)')
-    axes[0].set_xticks(range(mean_a.shape[1]))
-    axes[0].set_xlabel('Bypassed block index')
-    labels = ['–'.join(map(str, (w[0], w[-1]))) if len(w)>1 else str(w[0]) for w in result['metadata']['windows']]
-    axes[1].set_xticks(range(len(labels)), labels, rotation=90)
-    axes[1].set_xlabel('Candidate loop window (inclusive; equal extra block calls)')
-    axes[2].set_xticks([0], [str(result['metadata']['removed'])], rotation=90)
-    axes[2].set_xlabel('Fixed removed group')
+    tick_labels = [f'{i+1}\n(t={result["timesteps"][i]})' for i in ticks]
+    fig = plt.figure(figsize=(20, 9), constrained_layout=True)
+    grid = fig.add_gridspec(2, 2, width_ratios=[1.15, 1], height_ratios=[2, 1])
+    heat = fig.add_subplot(grid[:, 0])
+    recover_ax = fig.add_subplot(grid[0, 1])
+    prune_ax = fig.add_subplot(grid[1, 1], sharex=recover_ax)
+
+    im = heat.imshow(mean_a, origin='upper', aspect='auto', interpolation='nearest',
+                     cmap='inferno', vmin=0)
+    heat.set_title('Single-block bypass: mean epsilon MSE')
+    heat.set_yticks(ticks, [label.replace('\n', ' ') for label in tick_labels])
+    heat.set_ylabel('Denoising call: high noise (top) → low noise (bottom)')
+    heat.set_xticks(range(mean_a.shape[1]))
+    heat.set_xlabel('Bypassed block index')
+    fig.colorbar(im, ax=heat, label='Mean epsilon MSE')
+
+    colors = plt.get_cmap('tab10')
+    for column, window in enumerate(result['metadata']['windows']):
+        color = colors(column % 10)
+        label = f'Blocks {window[0]}–{window[-1]}' if len(window) > 1 else f'Block {window[0]}'
+        for pair in recovery:
+            recover_ax.plot(calls, pair[:, column], color=color, alpha=.2, linewidth=1)
+        recover_ax.plot(calls, recovery[:, :, column].mean(axis=0), color=color,
+                        marker='o', markersize=4, linewidth=2, label=label)
+    recover_ax.axhline(0, color='black', linestyle='--', linewidth=1, label='Zero recovery')
+    recover_ax.set_title('Loop recovery: faint lines = individual pairs; markers = mean')
+    recover_ax.set_ylabel('Prune MSE − prune+loop MSE\nPositive = closer to full model')
+    recover_ax.legend(fontsize=9, ncol=2)
+    recover_ax.tick_params(axis='x', labelbottom=False)
+
+    for pair in prune:
+        prune_ax.plot(calls, pair, color='0.35', alpha=.2, linewidth=1)
+    prune_ax.plot(calls, prune.mean(axis=0), color='0.15', marker='o',
+                  markersize=4, linewidth=2, label='Mean prune-only error')
+    prune_ax.set_title(f'Prune-only error: fixed removed group {result["metadata"]["removed"]}')
+    prune_ax.set_ylabel('Epsilon MSE')
+    prune_ax.set_ylim(bottom=0)
+    prune_ax.set_xticks(calls[ticks], tick_labels)
+    prune_ax.set_xlabel('Denoising call: high noise → low noise (left to right)')
+    for ax in (recover_ax, prune_ax):
+        ax.grid(alpha=.2)
+        ax.set_xlim(.5, len(calls) + .5)
     if output is not None:
         Path(output).mkdir(parents=True, exist_ok=True)
-        fig.savefig(Path(output) / 'denoising_heatmaps.png', dpi=180)
-        fig.savefig(Path(output) / 'denoising_heatmaps.pdf')
+        fig.savefig(Path(output) / 'denoising_diagnostics.png', dpi=180)
+        fig.savefig(Path(output) / 'denoising_diagnostics.pdf')
     return fig

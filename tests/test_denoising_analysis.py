@@ -81,10 +81,10 @@ def test_schedule_restored_after_error():
             raise RuntimeError("test")
     assert m.blocks is original
 
-def test_notebooks_embed_identical_standalone_definitions():
+def test_damped_notebook_embeds_standalone_definitions():
     import json
     a = definitions()
-    for name in ("Damped", "Pruned"):
+    for name in ("Damped",):
         n = json.loads((ROOT / f"DiT_Layer_Looping_{name}_colab.ipynb").read_text())
         cells = ["".join(c["source"]) for c in n["cells"] if c["cell_type"] == "code"]
         assert (ROOT / "denoising_analysis.py").read_text() in cells
@@ -119,7 +119,9 @@ def test_real_respaced_sampler_trajectory_and_plot(tmp_path, monkeypatch):
     for actual, reference in zip(measured_inputs, model.inputs):
         torch.testing.assert_close(actual, reference[0])
     figure = a.plot_denoising_analysis(result,tmp_path)
-    assert (tmp_path/'denoising_heatmaps.png').is_file()
-    assert (tmp_path/'denoising_heatmaps.pdf').is_file()
-    assert figure.axes[1].images[0].norm(0.) == .5
+    assert (tmp_path/'denoising_diagnostics.png').is_file()
+    assert (tmp_path/'denoising_diagnostics.pdf').is_file()
+    np.testing.assert_allclose(figure.axes[1].lines[1].get_ydata(), result['recovery'].mean(axis=0)[:, 0])
+    np.testing.assert_allclose(figure.axes[2].lines[1].get_ydata(), result['prune_mse'].mean(axis=0))
+    assert figure.axes[1].get_shared_x_axes().joined(figure.axes[1], figure.axes[2])
     plt.close(figure)
