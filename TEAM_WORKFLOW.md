@@ -105,7 +105,15 @@ the settings and a description in `reference.json`, so `extended` needs no
 `--fid-reference-description` for that folder, and a complete folder is reused.
 It downloads the whole validation split (about 6 GB) unless you pass `--streaming`.
 For any other folder of real images, pass `--fid-reference-description`.
-Without `--fid-reference-dir` and `--tpips-factors`, `extended` only copies the LPIPS results.
+The `extended` command computes both CLIP cosine metrics by default, independently
+of FID and TPIPS. Use `--no-clip` to skip CLIP, `--clip-device cpu` to select its
+device, and `--clip-batch-size 16` to control memory use. Install `transformers>=4.50,<5`
+for CLIP. Image–text cosine uses `a photo of a {ImageNet class name}`; image–image
+cosine compares with `original` at the same label/seed. Both are raw cosine in
+[-1, 1], higher is better. Extended summary columns are
+`clip_image_text_cosine_mean/std` and `clip_image_image_cosine_mean/std`
+(with `_mean` and `_std` as separate suffixes). Per-image columns omit the suffix.
+With `--no-clip` and no FID/TPIPS options, `extended` only copies LPIPS results.
 Outputs go to `results_extended.csv`, `paired_metrics_extended.csv` and
 `evaluation_extended.json`; the LPIPS files are not modified. Clean-FID here uses a
 folder of real images; for the final FID-500 study use the `fid` command below.

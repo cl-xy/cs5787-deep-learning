@@ -272,7 +272,7 @@ def test_extended_metrics_disabled_exports_lpips_without_optional_packages(tmp_p
     # Disabled extras must never import TPIPS or Clean-FID.
     monkeypatch.setitem(sys.modules, "tpips", None)
     monkeypatch.setitem(sys.modules, "cleanfid", None)
-    cli.main(["extended", "--output", str(tmp_path), "--split", "validation", "--names", *names])
+    cli.main(["extended", "--no-clip", "--output", str(tmp_path), "--split", "validation", "--names", *names])
     assert len(summary) == len(names)
     pd.testing.assert_frame_equal(pd.read_csv(split_root / "results.csv"),
                                   pd.read_csv(split_root / "results_extended.csv"))
@@ -418,7 +418,7 @@ def test_imagenet_reference_build_reuse_and_fid(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "cleanfid.features",
                         SimpleNamespace(build_feature_extractor=lambda *a, **k: object()))
     with pytest.warns(UserWarning, match="Small-sample"):
-        cli.main(["extended", "--output", str(tmp_path / "run"), "--names", *names,
+        cli.main(["extended", "--no-clip", "--output", str(tmp_path / "run"), "--names", *names,
                   "--fid-reference-dir", str(folder)])
     result = pd.read_csv(split_root / "results_extended.csv")
     assert result["fid"].notna().all()

@@ -1,0 +1,16 @@
+# macOS project environment; resolved versions are in requirements-local.lock.txt.
+torch==2.14.1
+torchvision==0.29.1
+timm
+diffusers
+accelerate
+lpips
+numpy
+pandas
+matplotlib
+pillow
+pytest
+huggingface_hub
+clean-fid
+scipy<1.18
+ipykernel

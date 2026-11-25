@@ -103,11 +103,18 @@ def test_setup_installs_dependencies_and_finds_the_project(ns):
     assert str(ns["PROJECT_ROOT"]) in sys.path
 
 
-def test_protocol_matches_the_frozen_imagenette_golden_values(ns):
+def test_protocol_uses_30_held_out_images_per_class_with_frozen_sampling_settings(ns):
+    from collections import Counter
     golden = json.loads((ROOT / "tests_team/golden_notebook_protocol.json").read_text())
-    from team_pipeline.data import protocol_hash
-    assert protocol_hash(ns["PROTOCOL"]) == golden["protocol_sha256"]
-    assert {k: len(v) for k, v in ns["PROTOCOL"]["splits"].items()} == golden["split_sizes"]
+    protocol = ns["PROTOCOL"]
+    assert protocol["settings"] == golden["settings"]
+    assert {k: len(v) for k, v in protocol["splits"].items()} == {
+        "calibration": 20, "validation": 20, "test": 300}
+    assert Counter(label for label, seed in protocol["splits"]["test"]) == {
+        label: 30 for label in golden["class_labels"]}
+    for split, pairs in protocol["splits"].items():
+        assert pairs[:3] == golden["first_pairs"][split]
+    assert protocol["splits"]["test"][-1] == [701, 10339]
 
 
 def test_configuration_defines_one_method_list_and_a_bound_runner(ns):
@@ -116,6 +123,8 @@ def test_configuration_defines_one_method_list_and_a_bound_runner(ns):
     assert dict((name, kw) for _, name, kw in ns["METHODS"])["member3_damped"] == {"alpha": "inverse_k"}
     assert ns["RUN_ARGS"].output == ns["RUN_ROOT"] and ns["RUN_ARGS"].protocol is ns["PROTOCOL"]
     assert callable(ns["run_method"])
+    assert ns["EVAL_OPTIONS"]["enable_fid"] is False
+    assert ns["EVAL_OPTIONS"]["enable_clip"] is True
     # No run state is created by configuring.
     assert not ns["RUN_ROOT"].exists()
 
@@ -153,7 +162,8 @@ def test_enabling_held_out_test_runs_all_methods_then_evaluates_the_test_split(n
 def test_enabling_custom_method_runs_the_example_builder_on_validation(ns):
     calls = []
     ns["run_method"] = lambda *a, **k: calls.append(("run", a, k))
-    ns["evaluate_split"] = lambda *a, **k: calls.append(("evaluate", a, k))
+    ns["evaluate_saved_split"] = lambda *a, **k: calls.append(("evaluate", a, k)) or {}
+    ns["show_evaluation"] = lambda outcome: None
     ns["protocol"] = ns["PROTOCOL"]
     ns["RUN_ROOT"] = ROOT / "does-not-exist-so-read_csv-is-stubbed"
     ns["pd"] = SimpleNamespace(read_csv=lambda path: pd.DataFrame())

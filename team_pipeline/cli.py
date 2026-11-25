@@ -82,7 +82,7 @@ def main(argv=None):
         sub.add_argument("--device", default="cpu", help="Device for the metric network only")
         if name == "fid":
             sub.add_argument("--reference", help="ADM ImageNet-256 reference .npz with mu/sigma")
-    sub = subs.add_parser("extended", help="Optional Clean-FID / TPIPS after evaluate")
+    sub = subs.add_parser("extended", help="CLIP cosine scores and optional Clean-FID / TPIPS after evaluate")
     sub.add_argument("--output", required=True, help="Shared run directory")
     sub.add_argument("--split", choices=["validation", "test", "fid"], default="validation")
     sub.add_argument("--names", nargs="+", required=True)
@@ -95,6 +95,10 @@ def main(argv=None):
                      help="e.g. overall shape texture; enables TPIPS")
     sub.add_argument("--tpips-device", default="cuda:0")
     sub.add_argument("--tpips-model-path")
+    sub.add_argument("--clip", action=argparse.BooleanOptionalAction, default=True,
+                     help="Evaluate both CLIP cosine scores (default: enabled)")
+    sub.add_argument("--clip-device", default="cpu")
+    sub.add_argument("--clip-batch-size", type=int, default=16)
     sub = subs.add_parser("fid-reference",
                           help="Build a real ImageNet FID reference folder for the generated classes")
     sub.add_argument("--output", required=True, help="Shared run directory")
@@ -137,7 +141,8 @@ def main(argv=None):
             fid_reference_description=args.fid_reference_description,
             tpips_factors=args.tpips_factors, fid_device=args.fid_device,
             tpips_device=args.tpips_device, fid_batch_size=args.fid_batch_size,
-            tpips_model_path=args.tpips_model_path)
+            tpips_model_path=args.tpips_model_path, enable_clip=args.clip,
+            clip_device=args.clip_device, clip_batch_size=args.clip_batch_size)
         print(result.to_string(index=False))
         return
     if args.command == "evaluate":

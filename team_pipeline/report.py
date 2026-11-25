@@ -106,7 +106,7 @@ def _read_fid(root, names, summary, baseline):
     if not extended_path.exists():
         return {}
     extended = pd.read_csv(extended_path)
-    if "fid" not in extended:
+    if not any(c in extended for c in ("fid", "clip_image_text_cosine_mean", "clip_image_image_cosine_mean")):
         return {}
     if not evaluation_path.exists():
         raise ValueError("FID CSV is missing its evaluation_extended.json provenance")
@@ -115,17 +115,28 @@ def _read_fid(root, names, summary, baseline):
             or evaluation.get("generation_runtime") != baseline["runtime"]
             or evaluation.get("images_per_variant") != len(baseline["pairs"])
             or not set(names).issubset(evaluation.get("variants", []))
-            or not evaluation.get("fid")):
+            ):
         raise ValueError("FID evaluation provenance does not match the saved generation")
     if extended["variant"].duplicated().any():
         raise ValueError("Duplicate variants in results_extended.csv")
     extended = extended.set_index("variant").loc[names]
     if not extended["images"].astype(int).eq(len(baseline["pairs"])).all():
         raise ValueError("FID summary sample counts do not match")
-    fid_values = pd.to_numeric(extended["fid"], errors="raise")
-    if not np.isfinite(fid_values).all() or (fid_values < 0).any():
-        raise ValueError("Invalid saved FID scores")
-    summary["fid"] = summary["variant"].map(fid_values)
+    for column in ["fid", "clip_image_text_cosine_mean", "clip_image_text_cosine_std",
+                   "clip_image_image_cosine_mean", "clip_image_image_cosine_std"]:
+        if column not in extended:
+            continue
+        metric = "fid" if column == "fid" else "clip"
+        if not evaluation.get(metric):
+            raise ValueError(f"Missing {metric} evaluation provenance")
+        values = pd.to_numeric(extended[column], errors="raise")
+        if not np.isfinite(values).all():
+            raise ValueError(f"Invalid saved {column} scores")
+        if (column == "fid" or column.endswith("_std")) and (values < 0).any():
+            raise ValueError(f"Invalid negative {column}")
+        if column.endswith("_mean") and ((values < -1) | (values > 1)).any():
+            raise ValueError(f"Invalid cosine range: {column}")
+        summary[column] = summary["variant"].map(values)
     return evaluation
 
 
@@ -162,7 +173,7 @@ def _write_report_tables(run_root, root, split, summary, per_class, baseline, ma
         generation_code_sha256=baseline["shared_code_sha256"], runtime=baseline["runtime"],
         method_labels=dict(zip(names, summary["method"])),
         saved_schedules={name: manifests[name].get("schedule", {}) for name in names},
-        fid=evaluation.get("fid"),
+        fid=evaluation.get("fid"), clip=evaluation.get("clip"),
         uncertainty="Error bars show sample SD, not confidence intervals; FID has no error bar",
         input_sha256={str(p.relative_to(run_root)): hashlib.sha256(p.read_bytes()).hexdigest()
                       for p in inputs}))
@@ -252,7 +263,8 @@ def _report_bars(ax, report, values, ylabel, title, errors=None, decimals=2):
                   yerr=uncertainty if errors is not None else None, capsize=3,
                   error_kw={"elinewidth": 1, "ecolor": "#334155"}, width=0.68)
     ymax = max(float(np.max(heights + uncertainty)), 0.01)
-    ax.set_ylim(0, ymax * 1.27)
+    ymin = min(float(np.min(heights - uncertainty)), 0.0)
+    ax.set_ylim(ymin * 1.27, ymax * 1.27)
     for bar, value, error in zip(bars, values, uncertainty):
         text = f"{value:.{decimals}f}" if np.isfinite(value) else "N/A"
         ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + error + ymax * 0.025,
@@ -273,8 +285,8 @@ def _figure(*args, **kwargs):
 def plot_report_quality(report):
     summary = report["summary"]
     with matplotlib.rc_context(REPORT_STYLE):
-        fig, axes = _figure(1, 2, figsize=(12.5, 4.8))
-        fig.suptitle("Output preservation and real-reference FID", fontsize=13)
+        fig, axes = _figure(2, 2, figsize=(12.5, 8.8))
+        fig.suptitle("Output preservation, CLIP alignment and optional FID", fontsize=13)
         _report_bars(axes[0, 0], report, summary["lpips_mean"], "Paired LPIPS ↓",
                      "Deviation from original DiT", errors=summary["lpips_std"], decimals=3)
         n = len(report["baseline"]["pairs"])
@@ -282,9 +294,13 @@ def plot_report_quality(report):
                      else f"Pooled FID-{n}")
         fid = summary["fid"] if "fid" in summary else pd.Series(np.nan, index=summary.index)
         _report_bars(axes[0, 1], report, fid, "FID vs. real reference ↓", fid_title, decimals=2)
-        reference_count = report["evaluation"].get("fid", {}).get("reference_images",
+        for ax, metric, title in [(axes[1, 0], "clip_image_text_cosine", "CLIP image–text alignment"),
+                                   (axes[1, 1], "clip_image_image_cosine", "CLIP preservation vs. original")]:
+            _report_bars(ax, report, summary.get(metric + "_mean", pd.Series(np.nan, index=summary.index)),
+                         "Cosine similarity ↑", title, errors=summary.get(metric + "_std"), decimals=3)
+        reference_count = (report["evaluation"].get("fid") or {}).get("reference_images",
                                                                   "not recorded")
-        note = (f"LPIPS bars: mean ± sample SD. FID is pooled across classes against "
+        note = (f"LPIPS and CLIP bars: mean ± sample SD. CLIP is raw cosine; higher is better. FID is pooled across classes against "
                 f"{reference_count} real images; no FID confidence intervals are estimated. "
                 "Small-sample FID rankings are exploratory.")
         return _save_report_figure(report, fig, "quality_metrics", note)

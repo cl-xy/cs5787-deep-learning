@@ -65,13 +65,25 @@ calibration images instead.
 - **Classes:** the ten Imagenette classes, identified by their ImageNet ids (0, 217,
   482, 491, 497, 566, 569, 571, 574, 701).
 - **Splits:** disjoint seeds for calibration (20 images), validation (20 per method) and
-  a held-out test split (500 per class, 5,000 per method).
+  a held-out test split (30 per class, 300 per method).
 - **Sampling:** identical for every method: 50 ancestral steps, classifier-free guidance
   scale 4, FP32 and deterministic kernels, with the DiT commit, checkpoint hash and VAE
   revision all pinned.
 - **Paired LPIPS (AlexNet):** distance from the original model's image for the same
   label and seed. Lower means closer to the original, not better quality.
-- **FID:** Clean-FID against 5,000 real images, 500 per class from the Imagenette v2
+- **CLIP image–text cosine:** raw cosine between each generated image and
+  `a photo of a {ImageNet class name}`, using CLIP ViT-B/32. Higher is better.
+- **CLIP image–image cosine:** raw cosine against the original model image with
+  the same class and seed. Higher means greater semantic preservation, not absolute
+  image quality. Both CLIP metrics are enabled by default (`ENABLE_CLIP=True` in
+  section 8), run in batches of 16 on CPU, and are independent of the FID toggle.
+  First use downloads CLIP weights/tokenizer. Per-method means and sample standard
+  deviations are saved in `results_extended.csv`, per-image scores in
+  `paired_metrics_extended.csv`, and Section 12 includes them in tables and plots.
+- **FID (optional, off by default):** Set `ENABLE_FID = True` in section 8 to enable
+  reference preparation and evaluation for validation and held-out test. With it off,
+  reference downloads, Clean-FID installation and FID computation are skipped. Clean-FID compares against 5,000 real images, 500 per class from the
+  Imagenette v2
   training split. These are downloaded once through torchvision (about 1.5 GB) and
   center-cropped to 256. With 20 validation images, FID is exploratory.
 - **TPIPS (optional, off by default):** aspect-wise distance (overall, shape, texture)
@@ -92,9 +104,9 @@ Run the sections in order:
 | 5 Prepare | checkpoint download and hash check; records protocol, code and environment | No |
 | 6 Select blocks | fixed `[4, 7]`, or calibration profiling | Optional |
 | 7A–7E Validation | one cell per method, 20 images each | Yes |
-| 8 Evaluation | paired LPIPS, Imagenette reference preparation, Clean-FID, comparison grid | No |
+| 8 Evaluation | paired LPIPS, both CLIP cosines, optional Clean-FID/reference preparation, comparison grid | No |
 | 9 Custom method | optional member-defined method | Yes |
-| 10 Held-out test | 5,000 images per method; off until `RUN_HELD_OUT_TEST = True` | Yes |
+| 10 Held-out test | 300 images per method; off until `RUN_HELD_OUT_TEST = True` | Yes |
 | 11 Export | zip the run folder | No |
 | 12 Report | plots and tables from a completed run, without rerunning anything | No |
 
@@ -103,7 +115,7 @@ Run the sections in order:
   PNGs, `results.csv` and `results_extended.csv`.
 - **Resuming:** set `RESUME_RUN` in section 4 to reopen a run. Completed method folders
   are never overwritten.
-- **Choosing settings:** use only the validation split. The held-out test takes about 53
+- **Choosing settings:** use only the validation split. The held-out test takes about 3.2
   hours of sampling for all five methods on Apple MPS.
 
 ## Other tools in the repository
