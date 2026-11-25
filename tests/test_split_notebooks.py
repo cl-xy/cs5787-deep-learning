@@ -76,3 +76,28 @@ def test_shared_design_import_works_across_devices_without_calibration(tmp_path)
     assert imported['anchor']==10
     assert imported['contract']['mode']=='pruned'
     assert not (tmp_path/'pairing_experiments/profile').exists()
+
+
+@pytest.mark.parametrize('mode', ['damped','pruned'])
+def test_full_test_cell_uses_frozen_5000_image_split(mode,tmp_path):
+    from types import SimpleNamespace
+    nb=notebook(mode)
+    cells=[c for c in nb['cells'] if c.get('id')=='pairing-test-run']
+    assert cells, 'Missing full held-out test cell'
+    pairs=[[label,label*500+i] for label in range(10) for i in range(500)]
+    (tmp_path/'protocol.json').write_text(json.dumps({'splits':{'test':pairs}}))
+    calls=[]
+    ns=dict(Path=Path,json=json,RUN_ARGS=SimpleNamespace(output=tmp_path),CLASS_LABELS=tuple(range(10)))
+    def run(split):
+        calls.append(split)
+        return tmp_path/split,['original']+[f'variant_{i}_{mode}' for i in range(5)],{}
+    ns['run_pairing_experiments']=run
+    exec(''.join(cells[0]['source']),ns)
+    assert calls==['test']
+    assert ns['PAIRING_SPLIT']=='test'
+    assert len(ns['pairing_test_pairs'])==5000
+    (tmp_path/'protocol.json').write_text(json.dumps({'splits':{'test':pairs[:20]}}))
+    calls.clear()
+    with pytest.raises(ValueError):
+        exec(''.join(cells[0]['source']),ns)
+    assert calls==[]

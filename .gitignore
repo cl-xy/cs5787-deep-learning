@@ -5,3 +5,5 @@ venv/
 checkpoints/
 team_runs/
 fid_references/
+requirements-local*
+LOCAL_ENVIRONMENT.md
