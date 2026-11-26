@@ -66,14 +66,15 @@ def _freeze(path, payload):
         write_json(path, payload)
 
 
-def run_plan(config, pairs, output, plan, *, evidence=None):
+def run_plan(config, pairs, output, plan, *, evidence=None, keep_checkpoints=True):
     """Run intact reference and removal variants; resume only complete matching runs."""
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     if not plan or any(Path(n).name != n or n in {'original', '.', '..', ''} for n in plan):
         raise ValueError('Use nonempty removal plan with safe, unique variant names')
     _freeze(output / 'plan.json', dict(config=config, pairs=pairs, variants=plan,
-                                     evidence=evidence, shared_code_sha256=shared_code_hash()))
+                                     evidence=evidence, keep_checkpoints=keep_checkpoints,
+                                     shared_code_sha256=shared_code_hash()))
     for name, removed in {'original': [], **plan}.items():
         folder = output / name
         mode = 'original' if name == 'original' else 'removal'
@@ -88,11 +89,17 @@ def run_plan(config, pairs, output, plan, *, evidence=None):
             baseline = pd.read_csv(output / 'original/samples.csv')
             reference = json.loads((output / 'original/manifest.json').read_text())
             samples, _ = _load_variant(output, name, baseline, reference)
+            if keep_checkpoints:
+                checkpoint = folder / 'model.pt'
+                if (not checkpoint.is_file()
+                        or checkpoint.stat().st_size != manifest['stats']['checkpoint_bytes']):
+                    raise ValueError(f'Missing or incomplete checkpoint: {name}; use a new run')
             if any(not (folder / f'image_{i:04d}.{ext}').is_file()
                    for i in samples['index'] for ext in ('pt', 'png')):
                 raise ValueError(f'Incomplete variant: {name}; move it aside before retrying')
             continue
         run_variant(config, pairs, folder, mode=mode, removed=removed, alpha=1.0,
+                    keep_checkpoint=keep_checkpoints,
                     method_metadata=dict(study='block_ablation', rule=name, looping=False))
     return ['original', *plan]
 
@@ -149,7 +156,8 @@ def run_study(args):
     else:
         plan = single_removal_plan(scores)
     output = root / 'ablations' / args.study / args.split
-    names = run_plan(config, protocol['splits'][args.split], output, plan, evidence=evidence)
+    names = run_plan(config, protocol['splits'][args.split], output, plan, evidence=evidence,
+                     keep_checkpoints=getattr(args, 'keep_checkpoints', True))
     result = evaluate_plan(output, names)
     if args.study == 'sweep':
         write_ablation_report(profile, output)
@@ -165,6 +173,8 @@ def main(argv=None):
     parser.add_argument('--repo', default='third_party/DiT')
     parser.add_argument('--split', choices=['validation', 'test'], default='validation')
     parser.add_argument('--counts', type=int, nargs='+', help='Top-R counts; default 1 through depth')
+    parser.add_argument('--keep-checkpoints', action=argparse.BooleanOptionalAction, default=True,
+                        help='Retain model.pt for every variant (default: enabled)')
     args = parser.parse_args(argv)
     print(run_study(args).to_string(index=False))
 

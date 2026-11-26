@@ -169,3 +169,23 @@ def test_missing_clip_dependency_fails_before_loading_run(monkeypatch):
     monkeypatch.setattr(ablation, 'package_version', lambda package: 'not-installed')
     with pytest.raises(RuntimeError, match='before preparing'):
         ablation.run_study(SimpleNamespace(study='sweep'))
+
+
+@pytest.mark.parametrize('keep', [False, True])
+def test_checkpoint_retention_is_honored_and_checked_on_resume(tiny_run, keep):
+    import torch
+    from team_pipeline.ablation import run_plan
+    config = dict(device='cpu', image_size=8, cfg_scale=4, sampling_steps=2)
+    pairs = [(1, 10), (2, 20)]
+    output = tiny_run / 'checkpoint_study'
+    names = run_plan(config, pairs, output, {'remove': [1]}, keep_checkpoints=keep)
+    for name in names:
+        path = output / name / 'model.pt'
+        assert path.exists() is keep
+        if keep:
+            assert 'state_dict' in torch.load(path, weights_only=True)
+    assert run_plan(config, pairs, output, {'remove': [1]}, keep_checkpoints=keep) == names
+    if keep:
+        (output / 'remove/model.pt').unlink()
+        with pytest.raises(ValueError, match='checkpoint'):
+            run_plan(config, pairs, output, {'remove': [1]}, keep_checkpoints=keep)
