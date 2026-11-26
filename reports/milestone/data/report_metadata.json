@@ -1,0 +1,1257 @@
+{
+  "run": "/Users/matthewlee/Desktop/CORNELL/CS5787/cs5787-deep-learning/team_runs/team_20261117T003651069722Z",
+  "split": "validation",
+  "images_per_variant": 20,
+  "labels": [
+    0,
+    217,
+    482,
+    491,
+    497,
+    566,
+    569,
+    571,
+    574,
+    701
+  ],
+  "class_counts": {
+    "0": 2,
+    "217": 2,
+    "482": 2,
+    "491": 2,
+    "497": 2,
+    "566": 2,
+    "569": 2,
+    "571": 2,
+    "574": 2,
+    "701": 2
+  },
+  "generation_code_sha256": "6da12ce572d7cc1d0b9767b015b4a255bb0bc390117a5340dd1e2249048dab00",
+  "runtime": {
+    "python": "3.14.8 (main, Sep 30 2026, 17:55:09) [Clang 17.0.0 (clang-1700.6.4.2)]",
+    "platform": "macOS-15.5-arm64-arm-64bit-Mach-O",
+    "packages": {
+      "torch": "2.15.0",
+      "torchvision": "0.29.2",
+      "timm": "1.0.31",
+      "diffusers": "0.43.0",
+      "accelerate": "1.16.0",
+      "lpips": "0.1.4",
+      "numpy": "2.5.5"
+    },
+    "device": "mps",
+    "machine": "arm64",
+    "cuda": null,
+    "gpu": null,
+    "mps_available": true,
+    "macos": "15.5",
+    "mps_fallback": "1",
+    "deterministic_warn_only": true
+  },
+  "method_labels": {
+    "original": "Original DiT",
+    "member1_removal": "Removal",
+    "member2_loop": "Looping",
+    "member3_damped": "Damped (fixed \u03b1=0.5)",
+    "member4_xsa_reuse": "XSA reuse"
+  },
+  "saved_schedules": {
+    "original": {
+      "mode": "original",
+      "removed": [],
+      "alpha": 1.0,
+      "replacement_residual_scale": 1.0,
+      "xsa_eps": 1e-08,
+      "index_base": 0,
+      "depth": 28,
+      "retained": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27
+      ],
+      "execution_schedule": [
+        {
+          "slot": 0,
+          "source": 0,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 1,
+          "source": 1,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 2,
+          "source": 2,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 3,
+          "source": 3,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 4,
+          "source": 4,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 5,
+          "source": 5,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 6,
+          "source": 6,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 7,
+          "source": 7,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 8,
+          "source": 8,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 9,
+          "source": 9,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 10,
+          "source": 10,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 11,
+          "source": 11,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 12,
+          "source": 12,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 13,
+          "source": 13,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 14,
+          "source": 14,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 15,
+          "source": 15,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 16,
+          "source": 16,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 17,
+          "source": 17,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 18,
+          "source": 18,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 19,
+          "source": 19,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 20,
+          "source": 20,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 21,
+          "source": 21,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 22,
+          "source": 22,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 23,
+          "source": 23,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 24,
+          "source": 24,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 25,
+          "source": 25,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 26,
+          "source": 26,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 27,
+          "source": 27,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        }
+      ]
+    },
+    "member1_removal": {
+      "mode": "removal",
+      "removed": [
+        4,
+        7
+      ],
+      "alpha": 1.0,
+      "replacement_residual_scale": 1.0,
+      "xsa_eps": 1e-08,
+      "index_base": 0,
+      "depth": 28,
+      "retained": [
+        0,
+        1,
+        2,
+        3,
+        5,
+        6,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27
+      ],
+      "execution_schedule": [
+        {
+          "slot": 0,
+          "source": 0,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 1,
+          "source": 1,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 2,
+          "source": 2,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 3,
+          "source": 3,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 5,
+          "source": 5,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 6,
+          "source": 6,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 8,
+          "source": 8,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 9,
+          "source": 9,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 10,
+          "source": 10,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 11,
+          "source": 11,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 12,
+          "source": 12,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 13,
+          "source": 13,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 14,
+          "source": 14,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 15,
+          "source": 15,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 16,
+          "source": 16,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 17,
+          "source": 17,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 18,
+          "source": 18,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 19,
+          "source": 19,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 20,
+          "source": 20,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 21,
+          "source": 21,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 22,
+          "source": 22,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 23,
+          "source": 23,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 24,
+          "source": 24,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 25,
+          "source": 25,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 26,
+          "source": 26,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 27,
+          "source": 27,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        }
+      ]
+    },
+    "member2_loop": {
+      "mode": "loop",
+      "removed": [
+        4,
+        7
+      ],
+      "alpha": 1.0,
+      "replacement_residual_scale": 1.0,
+      "xsa_eps": 1e-08,
+      "index_base": 0,
+      "depth": 28,
+      "retained": [
+        0,
+        1,
+        2,
+        3,
+        5,
+        6,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27
+      ],
+      "execution_schedule": [
+        {
+          "slot": 0,
+          "source": 0,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 1,
+          "source": 1,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 2,
+          "source": 2,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 3,
+          "source": 3,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 4,
+          "source": 3,
+          "scale": 1.0,
+          "replacement": true,
+          "xsa": false
+        },
+        {
+          "slot": 5,
+          "source": 5,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 6,
+          "source": 6,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 7,
+          "source": 6,
+          "scale": 1.0,
+          "replacement": true,
+          "xsa": false
+        },
+        {
+          "slot": 8,
+          "source": 8,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 9,
+          "source": 9,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 10,
+          "source": 10,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 11,
+          "source": 11,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 12,
+          "source": 12,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 13,
+          "source": 13,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 14,
+          "source": 14,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 15,
+          "source": 15,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 16,
+          "source": 16,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 17,
+          "source": 17,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 18,
+          "source": 18,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 19,
+          "source": 19,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 20,
+          "source": 20,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 21,
+          "source": 21,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 22,
+          "source": 22,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 23,
+          "source": 23,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 24,
+          "source": 24,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 25,
+          "source": 25,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 26,
+          "source": 26,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 27,
+          "source": 27,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        }
+      ]
+    },
+    "member3_damped": {
+      "mode": "damped",
+      "removed": [
+        4,
+        7
+      ],
+      "alpha": 0.5,
+      "replacement_residual_scale": 0.5,
+      "xsa_eps": 1e-08,
+      "index_base": 0,
+      "depth": 28,
+      "retained": [
+        0,
+        1,
+        2,
+        3,
+        5,
+        6,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27
+      ],
+      "execution_schedule": [
+        {
+          "slot": 0,
+          "source": 0,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 1,
+          "source": 1,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 2,
+          "source": 2,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 3,
+          "source": 3,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 4,
+          "source": 3,
+          "scale": 0.5,
+          "replacement": true,
+          "xsa": false
+        },
+        {
+          "slot": 5,
+          "source": 5,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 6,
+          "source": 6,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 7,
+          "source": 6,
+          "scale": 0.5,
+          "replacement": true,
+          "xsa": false
+        },
+        {
+          "slot": 8,
+          "source": 8,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 9,
+          "source": 9,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 10,
+          "source": 10,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 11,
+          "source": 11,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 12,
+          "source": 12,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 13,
+          "source": 13,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 14,
+          "source": 14,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 15,
+          "source": 15,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 16,
+          "source": 16,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 17,
+          "source": 17,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 18,
+          "source": 18,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 19,
+          "source": 19,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 20,
+          "source": 20,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 21,
+          "source": 21,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 22,
+          "source": 22,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 23,
+          "source": 23,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 24,
+          "source": 24,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 25,
+          "source": 25,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 26,
+          "source": 26,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 27,
+          "source": 27,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        }
+      ]
+    },
+    "member4_xsa_reuse": {
+      "mode": "xsa_reuse",
+      "removed": [
+        4,
+        7
+      ],
+      "alpha": 1.0,
+      "replacement_residual_scale": 1.0,
+      "xsa_eps": 1e-08,
+      "index_base": 0,
+      "depth": 28,
+      "retained": [
+        0,
+        1,
+        2,
+        3,
+        5,
+        6,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27
+      ],
+      "execution_schedule": [
+        {
+          "slot": 0,
+          "source": 0,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 1,
+          "source": 1,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 2,
+          "source": 2,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 3,
+          "source": 3,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 4,
+          "source": 3,
+          "scale": 1.0,
+          "replacement": true,
+          "xsa": true
+        },
+        {
+          "slot": 5,
+          "source": 5,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 6,
+          "source": 6,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 7,
+          "source": 6,
+          "scale": 1.0,
+          "replacement": true,
+          "xsa": true
+        },
+        {
+          "slot": 8,
+          "source": 8,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 9,
+          "source": 9,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 10,
+          "source": 10,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 11,
+          "source": 11,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 12,
+          "source": 12,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 13,
+          "source": 13,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 14,
+          "source": 14,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 15,
+          "source": 15,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 16,
+          "source": 16,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 17,
+          "source": 17,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 18,
+          "source": 18,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 19,
+          "source": 19,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 20,
+          "source": 20,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 21,
+          "source": 21,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 22,
+          "source": 22,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 23,
+          "source": 23,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 24,
+          "source": 24,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 25,
+          "source": 25,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 26,
+          "source": 26,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        },
+        {
+          "slot": 27,
+          "source": 27,
+          "scale": 1.0,
+          "replacement": false,
+          "xsa": false
+        }
+      ]
+    }
+  },
+  "fid": {
+    "implementation": "clean-fid",
+    "mode": "clean",
+    "features": "inception_v3_2048",
+    "reference_dir": "/Users/matthewlee/Desktop/CORNELL/CS5787/cs5787-deep-learning/fid_references/prepared/imagenette2_train_500perclass_75c142bd5e38b2c5",
+    "reference_description": "Imagenette v2 full-resolution train split; ImageNet labels=[0, 217, 482, 491, 497, 566, 569, 571, 574, 701]; 500 real images per class, selected with seed=0; RGB; aspect-preserving bicubic resize and center crop to 256x256; PNG.",
+    "reference_images": 5000,
+    "generated_images": 20,
+    "reference_inventory_sha256": "8661e40e21cdc87fe137539a8168fdc02f0cca19b960a25bcb0e112e5acaa40c",
+    "inventory_hash_scope": "relative filenames and file sizes, not image content",
+    "input": "only manifest-listed image_NNNN.png; grids excluded",
+    "device": "cpu",
+    "small_sample_pilot": true
+  },
+  "uncertainty": "Error bars show sample SD, not confidence intervals; FID has no error bar",
+  "input_sha256": {
+    "validation/results.csv": "2f931aad0111e21c3c0cc7698e3b72f3cb6089595b251af4ebc5239a110ff3eb",
+    "validation/paired_metrics.csv": "67354a9e440ab9ea440b0366cd051c9ae7f8b1545072d9d16d2313665862d4d9",
+    "validation/original/manifest.json": "64d94adc795674a7a1cce8048159d3d1a0b66126410cdd408fe0e11d5fba1beb",
+    "validation/results_extended.csv": "f38bdb0d28e1536573f9c7b4013b71a8d45c2d7025c34c9da610b18114ddf4c4",
+    "validation/evaluation_extended.json": "7fedc0914fc2b072f23faadc570678ca2fc1604924f9631ab7206007802e7fe3"
+  }
+}

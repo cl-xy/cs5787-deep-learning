@@ -1,0 +1,21 @@
+{
+  "image_size": 256,
+  "architecture": "DiT-XL/2",
+  "sampling_steps": 50,
+  "cfg_scale": 4.0,
+  "sampler": "official ancestral p_sample_loop",
+  "dtype": "float32",
+  "tf32": false,
+  "deterministic_algorithms": true,
+  "batch_size_images": 1,
+  "initial_noise_device": "cpu",
+  "sampler_seed_offset": 1000000,
+  "vae_id": "stabilityai/sd-vae-ft-mse",
+  "vae_revision": "31f26fdeee1355a5c34592e401dd41e45d25a493",
+  "dit_commit": "ed81ce2229091fd4ecc9a223645f95cf379d582b",
+  "checkpoint_sha256": "9ec1876e4c03471bca126663a30e2d1b20610b6d2f87850a39a36f25cc685521",
+  "checkpoint": "/Users/matthewlee/Desktop/CORNELL/CS5787/cs5787-deep-learning/checkpoints/DiT-XL-2-256x256.pt",
+  "device": "mps",
+  "protocol_sha256": "23a7f719fc70642e5051a80223282465f913c5ac4d22c910fbeaad71b8d5ac0e",
+  "shared_code_sha256": "6da12ce572d7cc1d0b9767b015b4a255bb0bc390117a5340dd1e2249048dab00"
+}

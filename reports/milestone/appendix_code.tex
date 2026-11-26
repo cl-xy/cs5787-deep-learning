@@ -1,0 +1,78 @@
+% Optional supplement, excluded from the default 2--3-page milestone build.
+\section{Code, Provenance, and Reproduction}
+\label{app:code}
+The accompanying snapshot contains all project notebook code cells and both
+regression-test files as of commit \texttt{81b8806}. The output-free notebook
+preserves the cell ordering and markdown instructions. The flat Python file
+below is an archival listing, not a recommended batch entry point: run the
+notebook interactively to control generation and optional evaluation.
+The measured run predates harmonic damping; its executed-function snapshot
+is preserved separately in \texttt{data/notebook\_sources.json}, and its
+generation fingerprint begins \texttt{6da12ce572d7}.
+
+\subsection{Code collected online and project changes}
+\begin{itemize}
+\item Official DiT source and demo: \url{https://github.com/facebookresearch/DiT},
+including \texttt{run\_DiT.ipynb}, \texttt{models.py}, and the ancestral
+diffusion implementation. The submodule is pinned to
+\texttt{ed81ce2229091fd4ecc9a223645f95cf379d582b}; upstream code retains its
+CC BY-NC 4.0 license. Its training code is not executed by this project.
+\item The XSA mathematical operation is adapted from Looped-DiT:
+\url{https://github.com/OpenSenseNova/Looped-DiT}. We implement the projection
+through scoped hooks in the frozen DiT attention path rather than claiming
+to reproduce that repository's trained model.
+\item Training-free looping reference code:
+\url{https://github.com/L-z-Chen/Training-Free-Looped-Transformer}.
+Our progressive $1/k$ replacement schedule differs from its constant-$1/K$
+integrator; no language-model evaluation results are reused here.
+\item TeaCache source (related work, not executed):
+\url{https://github.com/ali-vilab/TeaCache}.
+\item Image sampling uses PyTorch, timm, and Diffusers:
+\url{https://pytorch.org/}, \url{https://github.com/huggingface/pytorch-image-models},
+and \url{https://github.com/huggingface/diffusers}.
+The pretrained VAE is \url{https://huggingface.co/stabilityai/sd-vae-ft-mse}.
+\item LPIPS and Clean-FID are used through their released libraries:
+\url{https://github.com/richzhang/PerceptualSimilarity} and
+\url{https://github.com/GaParmar/clean-fid}.
+\item Optional TPIPS code is at
+\url{https://github.com/adobe-research/TPIPS}; it is disabled in the measured run.
+\item Imagenette data and metadata are from
+\url{https://github.com/fastai/imagenette}. The full-resolution archive is
+downloaded by torchvision; its original ImageNet class IDs are explicitly
+mapped in the notebook.
+\end{itemize}
+
+The project-level changes include unique-module registration with explicit
+execution schedules, block removal/reuse/damping, an inference-only XSA
+adapter, compact checkpoint reconstruction, matched RNG streams,
+CPU/MPS/CUDA support, calibration hooks, class-balanced reference preparation,
+manifest validation, provenance fingerprints, bounded previews, and report
+plots. They extend the sampling implementation within PyTorch; this is not
+a TensorFlow-to-PyTorch conversion. \textbf{TODO before final submission:}
+record each student's contributions and the exact source URL/credit for any
+additional pasted team/Colab companion code not identifiable from the
+repository. A code listing alone does not establish original authorship.
+
+\subsection{Reproduction entry points}
+Clone the project at the stated commit, initialize its DiT submodule, and run
+\texttt{venv/bin/python -m pytest -q}. Use notebook sections 1--8 for the
+validation pipeline and section 12 alone to regenerate figures from completed
+saved artifacts. The larger held-out test in section 10 remains explicitly
+disabled until validation choices are frozen. Do not rerun completed
+generation folders or combine different source fingerprints in one comparison.
+
+\onecolumn
+\lstset{language=Python,basicstyle=\ttfamily\scriptsize,
+ numbers=left,numberstyle=\tiny,numbersep=6pt,breaklines=true,
+ breakatwhitespace=false,showstringspaces=false,columns=fullflexible,
+ keepspaces=true,tabsize=4,frame=single,framerule=0.2pt,
+ literate={—}{{---}}3 {–}{{--}}2 {−}{{-}}1 {→}{{$\to$}}1
+ {↓}{{$\downarrow$}}1 {↑}{{$\uparrow$}}1 {α}{{$\alpha$}}1
+ {×}{{$\times$}}1 {±}{{$\pm$}}1 {≤}{{$\leq$}}1 {≥}{{$\geq$}}1
+ {…}{{...}}3 {’}{{'}}1}
+\subsection{Complete notebook code cells}
+\lstinputlisting{code/notebook_code.py}
+\subsection{Notebook and damping regression tests}
+\lstinputlisting{code/tests/test_notebook.py}
+\subsection{Saved-report regression tests}
+\lstinputlisting{code/tests/test_reports.py}

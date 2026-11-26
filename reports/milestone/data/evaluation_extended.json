@@ -1,0 +1,58 @@
+{
+  "generation_code_sha256": "6da12ce572d7cc1d0b9767b015b4a255bb0bc390117a5340dd1e2249048dab00",
+  "generation_runtime": {
+    "python": "3.14.8 (main, Sep 30 2026, 17:55:09) [Clang 17.0.0 (clang-1700.6.4.2)]",
+    "platform": "macOS-15.5-arm64-arm-64bit-Mach-O",
+    "packages": {
+      "torch": "2.15.0",
+      "torchvision": "0.29.2",
+      "timm": "1.0.31",
+      "diffusers": "0.43.0",
+      "accelerate": "1.16.0",
+      "lpips": "0.1.4",
+      "numpy": "2.5.5"
+    },
+    "device": "mps",
+    "machine": "arm64",
+    "cuda": null,
+    "gpu": null,
+    "mps_available": true,
+    "macos": "15.5",
+    "mps_fallback": "1",
+    "deterministic_warn_only": true
+  },
+  "variants": [
+    "original",
+    "member1_removal",
+    "member2_loop",
+    "member3_damped",
+    "member4_xsa_reuse"
+  ],
+  "images_per_variant": 20,
+  "lower_is_better": true,
+  "packages": {
+    "torch": "2.15.0",
+    "torchvision": "0.29.2",
+    "numpy": "2.5.5",
+    "scipy": "1.17.1",
+    "clean-fid": "0.1.35",
+    "tpips": "0.1.2",
+    "transformers": "5.23.0",
+    "pillow": "13.0.0"
+  },
+  "fid": {
+    "implementation": "clean-fid",
+    "mode": "clean",
+    "features": "inception_v3_2048",
+    "reference_dir": "/Users/matthewlee/Desktop/CORNELL/CS5787/cs5787-deep-learning/fid_references/prepared/imagenette2_train_500perclass_75c142bd5e38b2c5",
+    "reference_description": "Imagenette v2 full-resolution train split; ImageNet labels=[0, 217, 482, 491, 497, 566, 569, 571, 574, 701]; 500 real images per class, selected with seed=0; RGB; aspect-preserving bicubic resize and center crop to 256x256; PNG.",
+    "reference_images": 5000,
+    "generated_images": 20,
+    "reference_inventory_sha256": "8661e40e21cdc87fe137539a8168fdc02f0cca19b960a25bcb0e112e5acaa40c",
+    "inventory_hash_scope": "relative filenames and file sizes, not image content",
+    "input": "only manifest-listed image_NNNN.png; grids excluded",
+    "device": "cpu",
+    "small_sample_pilot": true
+  },
+  "tpips": null
+}
