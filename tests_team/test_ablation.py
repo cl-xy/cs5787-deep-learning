@@ -68,7 +68,7 @@ def test_single_removal_rules_and_boundary_successor():
     # Last block has the largest delta but no successor: next largest is block 3.
     scores = pd.DataFrame(dict(block=range(6), mean_feature_change=[2, 1, 3, 8, 4, 9]))
     plan = single_removal_plan(scores)
-    assert plan == {'A_min_delta': [1], 'B_after_max_delta': [4],
+    assert plan == {'A_min_delta': [1], 'B_before_max_delta': [4], 'B_after_max_delta': [4],
                     'C_early': [0], 'C_middle': [2], 'C_late': [4]}
     with pytest.raises(ValueError, match='finite'):
         single_removal_plan(scores.assign(mean_feature_change=np.nan))
@@ -189,3 +189,16 @@ def test_checkpoint_retention_is_honored_and_checked_on_resume(tiny_run, keep):
         (output / 'remove/model.pt').unlink()
         with pytest.raises(ValueError, match='checkpoint'):
             run_plan(config, pairs, output, {'remove': [1]}, keep_checkpoints=keep)
+
+
+@pytest.mark.parametrize('deltas,before,after', [
+    ([1, 2, 9, 3, 4], 1, 3),
+    ([9, 2, 8, 3, 4], 1, 1),  # block 0 has no predecessor
+    ([1, 8, 8, 3, 4], 0, 2),  # ties choose the lower eligible index
+])
+def test_before_and_after_max_delta_select_adjacent_blocks(deltas, before, after):
+    from team_pipeline.ablation import single_removal_plan
+    scores = pd.DataFrame(dict(block=range(len(deltas)), mean_feature_change=deltas))
+    plan = single_removal_plan(scores)
+    assert plan['B_before_max_delta'] == [before]
+    assert plan['B_after_max_delta'] == [after]

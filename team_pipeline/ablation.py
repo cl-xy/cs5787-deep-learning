@@ -29,13 +29,19 @@ def _feature_scores(scores):
 
 
 def single_removal_plan(scores):
-    """R=1 for each rule; ties favor lower indices, C uses lower partition centers."""
+    """R=1 per rule; B anchors need a neighbor in the requested direction.
+
+    Ties favor lower indices; C uses lower partition centers.
+    """
     scores = _feature_scores(scores)
     minimum = scores.sort_values(['mean_feature_change', 'block']).iloc[0]
-    predecessor = scores.iloc[:-1].sort_values(
+    after_anchor = scores.iloc[:-1].sort_values(
+        ['mean_feature_change', 'block'], ascending=[False, True]).iloc[0]
+    before_anchor = scores.iloc[1:].sort_values(
         ['mean_feature_change', 'block'], ascending=[False, True]).iloc[0]
     plan = {'A_min_delta': [int(minimum.block)],
-            'B_after_max_delta': [int(predecessor.block) + 1]}
+            'B_before_max_delta': [int(before_anchor.block) - 1],
+            'B_after_max_delta': [int(after_anchor.block) + 1]}
     for name, group in zip(('early', 'middle', 'late'), depth_partitions(len(scores))):
         plan[f'C_{name}'] = [int(group[(len(group) - 1) // 2])]
     return plan

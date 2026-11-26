@@ -184,8 +184,11 @@ python -m team_pipeline.ablation report --output "$RUN"
 
 `sweep` profiles intact calibration trajectories and removes each of the 28 blocks
 independently on validation pairs. `rules` fixes R=1: A removes minimum normalized
-feature change; B removes the immediate successor of the largest feature change
-among blocks with a successor; C removes the lower center of each depth third
+feature change; B has two variants: `B_before_max_delta` removes the immediate
+predecessor and `B_after_max_delta` removes the immediate successor of the
+largest feature change among blocks with that neighbor. Thus block 0 cannot
+anchor the before variant, and the final block cannot anchor the after variant.
+C removes the lower center of each depth third
 (blocks 4, 14, 23 for 28 blocks). Ties use the smaller block index. All runs disable
 layer reuse and use the intact DiT with identical class/seed/noise pairs as reference.
 Each study evaluates paired LPIPS and CLIP image–text and image–image cosine scores.
