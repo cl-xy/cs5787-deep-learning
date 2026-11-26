@@ -222,10 +222,10 @@ interval for a sharp rise, not a statistically confirmed threshold; inspect the
 curve and refine the tested counts around that interval in a new run. All three
 metrics also retain the existing evaluator's per-image scores and sample SDs.
 
-Ablation studies retain a `model.pt` checkpoint in every variant folder by default.
-Notebook section 13 honors `KEEP_CHECKPOINTS` from section 4 (now enabled).
-Use `--no-keep-checkpoints` on the CLI, or set the notebook flag to `False`, to
-save only images and metrics. Checkpoints consume several GB per variant; use a
+Ablation studies save images and metrics without retaining model checkpoints by default.
+Notebook section 13 honors `KEEP_CHECKPOINTS` from section 4 (disabled by default).
+Use `--keep-checkpoints` on the CLI, or set the notebook flag to `True`, to
+retain a `model.pt` in each variant folder. Checkpoints consume several GB per variant; use a
 suitably sized output drive. Restart the kernel and prepare a fresh run after
 updating the pipeline. Retention is frozen in each study plan, and resuming with
 retention enabled checks that saved checkpoints are present and complete in size.

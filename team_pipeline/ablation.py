@@ -66,7 +66,7 @@ def _freeze(path, payload):
         write_json(path, payload)
 
 
-def run_plan(config, pairs, output, plan, *, evidence=None, keep_checkpoints=True):
+def run_plan(config, pairs, output, plan, *, evidence=None, keep_checkpoints=False):
     """Run intact reference and removal variants; resume only complete matching runs."""
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
@@ -157,7 +157,7 @@ def run_study(args):
         plan = single_removal_plan(scores)
     output = root / 'ablations' / args.study / args.split
     names = run_plan(config, protocol['splits'][args.split], output, plan, evidence=evidence,
-                     keep_checkpoints=getattr(args, 'keep_checkpoints', True))
+                     keep_checkpoints=getattr(args, 'keep_checkpoints', False))
     result = evaluate_plan(output, names)
     if args.study == 'sweep':
         write_ablation_report(profile, output)
@@ -173,8 +173,8 @@ def main(argv=None):
     parser.add_argument('--repo', default='third_party/DiT')
     parser.add_argument('--split', choices=['validation', 'test'], default='validation')
     parser.add_argument('--counts', type=int, nargs='+', help='Top-R counts; default 1 through depth')
-    parser.add_argument('--keep-checkpoints', action=argparse.BooleanOptionalAction, default=True,
-                        help='Retain model.pt for every variant (default: enabled)')
+    parser.add_argument('--keep-checkpoints', action=argparse.BooleanOptionalAction, default=False,
+                        help='Retain model.pt for every variant (default: disabled)')
     args = parser.parse_args(argv)
     print(run_study(args).to_string(index=False))
 
