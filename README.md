@@ -212,7 +212,7 @@ python -m team_pipeline.ablation topk --output "$RUN" --counts 1 2 3 4 6 8 12 16
 ```
 
 Omit `--counts` to evaluate every R from 1 through 28. This deliberately removes
-**highest** single-block LPIPS first (the most disruptive blocks), as specified;
+**lowest** single-block LPIPS first (the least perceptually disruptive blocks);
 ranking is frozen once from validation and ties favor smaller block indices.
 Each R removes a prefix of that same ranking; it does not rerank combinations.
 `--split test` reuses the validation ranking on held-out pairs.

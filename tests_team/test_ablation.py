@@ -106,12 +106,12 @@ def test_plan_generates_matched_no_loop_variants_and_checks_resume(tiny_run):
         run_plan(TINY_CONFIG, TINY_PAIRS, output, plan)
 
 
-def test_top_r_uses_descending_frozen_scores_and_nested_sets():
+def test_top_r_uses_ascending_frozen_scores_and_nested_sets():
     from team_pipeline.ablation import top_r_plan
     sweep = pd.DataFrame(dict(block=[2, 0, 1], lpips_mean=[0.5, 0.1, 0.5]))
     plan, ranking = top_r_plan(sweep, [1, 2, 3])
-    assert ranking == [1, 2, 0]
-    assert plan == {'top_r_01': [1], 'top_r_02': [1, 2], 'top_r_03': [0, 1, 2]}
+    assert ranking == [0, 1, 2]
+    assert plan == {'top_r_01': [0], 'top_r_02': [0, 1], 'top_r_03': [0, 1, 2]}
     for counts in ([0], [4], [2, 1], [1, 1], [1.5], []):
         with pytest.raises(ValueError, match='counts'):
             top_r_plan(sweep, counts)
@@ -159,6 +159,7 @@ def test_sweep_rules_and_top_r_end_to_end_with_tiny_models(tiny_run, monkeypatch
     assert result.block_evaluations_per_forward.tolist() == [4, 3, 2, 0]
     ranking = json.loads((tiny_run / 'ablations/topk/ranking.json').read_text())
     assert ranking['source_split'] == 'validation'
+    assert ranking['order'] == 'ascending LPIPS'
     assert ranking['ranking'] == [0, 1, 2, 3]  # equal single-removal scores: stable ties
     assert (tiny_run / 'ablations/sweep/validation/analysis/block_ablation_heatmap.png').exists()
 

@@ -48,7 +48,7 @@ def single_removal_plan(scores):
 
 
 def top_r_plan(sweep, counts):
-    """Freeze descending single-block LPIPS, then remove nested ranking prefixes."""
+    """Freeze ascending single-block LPIPS, then remove nested ranking prefixes."""
     depth = len(sweep)
     if sorted(sweep.block.tolist()) != list(range(depth)):
         raise ValueError('Ranking requires every block exactly once')
@@ -58,7 +58,7 @@ def top_r_plan(sweep, counts):
     if (not counts or any(type(r) is not int or not 1 <= r <= depth for r in counts)
             or counts != sorted(set(counts))):
         raise ValueError('Removal counts must be increasing unique integers from 1 to depth')
-    ranking = sweep.sort_values(['lpips_mean', 'block'], ascending=[False, True]).block.astype(int).tolist()
+    ranking = sweep.sort_values(['lpips_mean', 'block'], ascending=[True, True]).block.astype(int).tolist()
     return {f'top_r_{r:02d}': sorted(ranking[:r]) for r in counts}, ranking
 
 
@@ -154,7 +154,7 @@ def run_study(args):
             raise ValueError('Ranking sweep does not match this prepared validation run')
         counts = getattr(args, 'counts', None)
         plan, ranking = top_r_plan(sweep, list(range(1, len(scores) + 1)) if counts is None else counts)
-        evidence = dict(ranking=ranking, source_split='validation', order='descending LPIPS',
+        evidence = dict(ranking=ranking, source_split='validation', order='ascending LPIPS',
                         scores=sweep[['block', 'lpips_mean']].to_dict('records'), config=config)
         ranking_path = root / 'ablations/topk/ranking.json'
         ranking_path.parent.mkdir(parents=True, exist_ok=True)

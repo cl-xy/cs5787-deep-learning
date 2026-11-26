@@ -12,7 +12,7 @@ Implement five separately committed tasks on `feature/block-ablation-studies`:
    LPIPS / CLIP evaluators. A chooses minimum delta; B chooses the successor of
    the maximum delta with an existing successor; C chooses each third's center.
    Permit block zero in removal-only schedules. Save frozen plans and provenance.
-5. Freeze descending single-block validation LPIPS ranking (ties by block index),
+5. Freeze ascending single-block validation LPIPS ranking (ties by block index),
    run nested top-R removals, and plot all three metrics against R including the
    intact R=0 reference. Export adjacent LPIPS slopes as exploratory evidence of
    sharp rises, not a statistically established threshold.
