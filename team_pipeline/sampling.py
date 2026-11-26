@@ -117,18 +117,49 @@ def _schedule_metadata(model):
     return blocks.metadata() if hasattr(blocks, "metadata") else dict(mode="custom")
 
 
+class _CountingWriter:
+    """A write-only serialization sink: count bytes without retaining them."""
+
+    def __init__(self):
+        self.bytes_written = 0
+
+    def write(self, data):
+        size = len(data)
+        self.bytes_written += size
+        return size
+
+    def tell(self):
+        return self.bytes_written
+
+    def flush(self):
+        pass
+
+
 def checkpoint_stats(model, path, keep=False, sampling_steps=None):
-    """Serialize the model to measure its on-disk size; delete it unless ``keep``."""
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    """Measure serialized size without disk writes unless ``keep`` is requested.
+
+    Both destinations use torch.save's file-object format, so the byte count
+    includes the same archive metadata as a retained checkpoint. Unlike BytesIO,
+    the counting sink does not accumulate a model-sized copy in memory.
+    """
     # CPU serialization happens before the model goes to device; no hidden device copies.
-    torch.save(dict(format_version=1, architecture="DiT-XL/2-256",
-                    schedule=_schedule_metadata(model), state_dict=model.state_dict()), path)
+    payload = dict(format_version=1, architecture="DiT-XL/2-256",
+                   schedule=_schedule_metadata(model), state_dict=model.state_dict())
+    if keep:
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open('wb') as stream:
+            torch.save(payload, stream)
+            checkpoint_bytes = stream.tell()
+    else:
+        stream = _CountingWriter()
+        torch.save(payload, stream)
+        checkpoint_bytes = stream.tell()
     blocks = model.blocks
     unique_blocks = len(blocks.retained) if hasattr(blocks, "retained") else len(blocks)
     result = dict(
         unique_parameters=sum(p.numel() for p in model.parameters()),
-        checkpoint_bytes=path.stat().st_size,
+        checkpoint_bytes=checkpoint_bytes,
         parameter_bytes=sum(p.numel() * p.element_size() for p in model.parameters()),
         unique_blocks=unique_blocks,
         block_evaluations_per_forward=len(blocks),
@@ -138,8 +169,6 @@ def checkpoint_stats(model, path, keep=False, sampling_steps=None):
         flops = estimate_dit_flops(model, sampling_steps)
         if flops is not None:
             result.update(flops)
-    if not keep:
-        path.unlink()
     return result
 
 

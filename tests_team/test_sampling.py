@@ -101,3 +101,26 @@ def test_generate_seeds_sampler_noise_with_the_protocol_offset():
     assert generate_draw(7, seed_offset=5) != expected
     torch.manual_seed(12)
     assert generate_draw(7, seed_offset=5) == generate_draw(7, seed_offset=5)
+
+
+def test_checkpoint_measurement_does_not_write_or_replace_files(tmp_path):
+    """Disabled checkpoint retention must work without storage for a checkpoint."""
+    model = Stub()
+    path = tmp_path / 'existing.pt'
+    path.write_bytes(b'preserve existing artifact')
+    measured = sampling.checkpoint_stats(model, path, keep=False)
+    assert path.read_bytes() == b'preserve existing artifact'
+    saved = tmp_path / 'saved.pt'
+    retained = sampling.checkpoint_stats(model, saved, keep=True)
+    assert measured['checkpoint_bytes'] == retained['checkpoint_bytes'] == saved.stat().st_size
+    assert measured['parameter_bytes'] == 32
+    restored = torch.load(saved, weights_only=True)
+    for key, value in model.state_dict().items():
+        torch.testing.assert_close(restored['state_dict'][key], value)
+
+
+def test_checkpoint_measurement_needs_no_output_directory(tmp_path):
+    path = tmp_path / 'not-created/model.pt'
+    result = sampling.checkpoint_stats(Stub(), path, keep=False)
+    assert result['checkpoint_bytes'] > 32
+    assert not path.parent.exists()
