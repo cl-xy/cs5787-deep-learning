@@ -26,6 +26,7 @@ from .drive import build_command
 
 ROLES = ("loop", "strongest_removal")           # arms compared in the headline results
 OPTIONAL_ROLES = ("naive_same_window", "removal_same_window")
+EXTENSION_ROLES = ("policy", "gated", "quality")  # written by ``loop_compression.ext freeze``
 
 
 def load_frozen(output, budgets=None, extras=False):
@@ -38,7 +39,7 @@ def load_frozen(output, budgets=None, extras=False):
     for budget in sorted(frozen, key=int):
         if budgets is not None and int(budget) not in set(budgets):
             continue
-        for role in ROLES + (OPTIONAL_ROLES if extras else ()):
+        for role in ROLES + (OPTIONAL_ROLES if extras else ()) + EXTENSION_ROLES:
             item = frozen[budget].get(role)
             if item is None or item["name"] in seen:  # one run can fill several roles
                 continue

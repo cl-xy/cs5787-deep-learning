@@ -81,7 +81,7 @@ def validate(args):
     sens = output / "profile" / "sensitivity"
     shortlist = Path(args.shortlist) if args.shortlist else sens / "shortlist.json"
     entries = load_shortlist(shortlist, args.budgets)
-    config_dir = shortlist.parent / "shortlist"
+    config_dir = shortlist.parent / shortlist.stem  # shortlist_<tag>.json -> shortlist_<tag>/
     split_dir = output / SELECTION_SPLIT
     log, jobs, aliases, first_name = [], [], [], {}
     if not (split_dir / "original").exists():

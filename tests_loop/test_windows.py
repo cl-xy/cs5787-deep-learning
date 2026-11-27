@@ -169,3 +169,22 @@ def test_plots_are_written(tmp_path):
     sens.plot_window_results(synthetic_frame(), tmp_path)
     for name in ("window_depth_curve.png", "window_position_size_heatmap.png"):
         assert (tmp_path / name).stat().st_size > 0
+
+
+def test_early_windows_reduced_variants_and_tagged_outputs(tmp_path):
+    default_starts = {p["settings"]["window"][0] for p in sens.sweep_plan(28, (2, 4, 6), (2, 4), (2,), a_stride=4)}
+    early = sens.sweep_plan(28, (2, 4, 6), (2, 4), (2,), a_stride=4, a_min=0)
+    assert min(default_starts) == 4 and min(p["settings"]["window"][0] for p in early) == 0
+    assert sens.sweep_plan(28, (2,), (2,), (2,), a_stride=4, protect_last=0)[-1]["settings"]["window"][1] <= 27
+    full = list(sens.strategy_variants((2,)))
+    reduced = list(sens.strategy_variants((2,), reduced=True))
+    assert len(reduced) < len(full) and {s["iteration"] for _, s in reduced} == {"block"}
+    assert {k for k, _ in reduced} == {"removal", "window_removal", "loop"}
+    assert len({p["config_id"] for p in sens.sweep_plan(28, (2, 4), (2,), (2,), 4, 0, reduced=True)}) == len(
+        sens.sweep_plan(28, (2, 4), (2,), (2,), 4, 0, reduced=True))
+    entries = [dict(name="d2_r1_loop", role="loop", budget=2, settings=dict(window=[0, 3]))]
+    sens.write_shortlist(entries, tmp_path / "shortlist_early")
+    assert (tmp_path / "shortlist_early.json").exists() and not (tmp_path / "shortlist.json").exists()
+    assert (tmp_path / "shortlist_early" / "d2_r1_loop.json").exists()
+    sens.plot_window_results(synthetic_frame(), tmp_path, "_early")
+    assert (tmp_path / "window_depth_curve_early.png").exists()

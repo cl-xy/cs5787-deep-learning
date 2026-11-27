@@ -1,9 +1,15 @@
 """Builder for the shared runner:
 python -m team_pipeline.cli run ... --method loop_compression.method:build_model --method-config cfg.json
+
+Settings: ``window`` (required) plus any of ``kept, K, iteration, strategy, h, beta``,
+optionally ``gate`` (masked token gating) and ``schedule_by_t`` (both described in
+``loop_compression.blocks``): per-timestep loop rules. With ``schedule_by_t`` the container is attached to ``model.t_embedder`` so
+it sees the sampler timestep; weights and parameters stay those of the unscheduled
+config.
 """
 from .blocks import LoopedBlocks
 
-SETTING_KEYS = {"window", "kept", "K", "iteration", "strategy", "h", "beta"}
+SETTING_KEYS = {"window", "kept", "K", "iteration", "strategy", "h", "beta", "schedule_by_t", "gate"}
 
 
 def build_model(model, settings):
@@ -14,4 +20,6 @@ def build_model(model, settings):
     if "window" not in settings:
         raise ValueError("settings must contain 'window': [first, last]")
     model.blocks = LoopedBlocks(model.blocks.retained.values(), **settings)
+    if settings.get("schedule_by_t"):
+        model.blocks.attach(model)
     return model

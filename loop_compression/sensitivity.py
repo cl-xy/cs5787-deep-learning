@@ -290,23 +290,26 @@ def window_candidates(depth, discards=BUDGETS, kept_sizes=(2, 4), a_min=4, a_str
                            kept=list(range(first + lead, first + lead + kept_size)))
 
 
-def strategy_variants(loop_counts=(2,)):
+def strategy_variants(loop_counts=(2,), reduced=False):
     """(kind, LoopedBlocks settings) for one window.
 
     removal         discarded blocks dropped, kept blocks run once (equal parameters)
     window_removal  the whole window dropped (control; fewer parameters)
     loop            the kept segment looped K times
+    ``reduced`` keeps only block iteration with naive, damped h in {0.5, 0.75} and
+    anchored h=0.75: the variants that won in the full sweep, for quick wide scans.
     """
     yield "removal", dict(K=1, iteration="block", strategy="naive")
     yield "window_removal", dict(K=1, iteration="block", strategy="damped", h=0.0)
     for K in loop_counts:
         yield "loop", dict(K=K, iteration="block", strategy="naive")
-        for h in DAMPING:
+        for h in ((0.5, 0.75) if reduced else DAMPING):
             yield "loop", dict(K=K, iteration="block", strategy="damped", h=h)
-        for h in DAMPING:
+        for h in ((0.75,) if reduced else DAMPING):
             yield "loop", dict(K=K, iteration="block", strategy="anchored", h=h, beta=0.5)
-        yield "loop", dict(K=K, iteration="layer", strategy="naive")
-        yield "loop", dict(K=K, iteration="layer", strategy="damped", h=0.5)
+        if not reduced:
+            yield "loop", dict(K=K, iteration="layer", strategy="naive")
+            yield "loop", dict(K=K, iteration="layer", strategy="damped", h=0.5)
 
 
 def full_settings(window, kept, extra):
@@ -324,10 +327,11 @@ def settings_id(settings):
     return hashlib.sha1(json.dumps(settings, sort_keys=True).encode()).hexdigest()[:10]
 
 
-def sweep_plan(depth, discards, kept_sizes, loop_counts, a_stride, a_min=4):
+def sweep_plan(depth, discards, kept_sizes, loop_counts, a_stride, a_min=4, protect_last=1,
+               reduced=False):
     plan = []
-    for window in window_candidates(depth, discards, kept_sizes, a_min, a_stride):
-        for kind, extra in strategy_variants(loop_counts):
+    for window in window_candidates(depth, discards, kept_sizes, a_min, a_stride, protect_last):
+        for kind, extra in strategy_variants(loop_counts, reduced):
             settings = full_settings(window["window"], window["kept"], extra)
             plan.append(dict(kind=kind, discard=window["discard"], kept_size=window["kept_size"],
                              settings=settings, config_id=settings_id(settings)))
@@ -421,16 +425,17 @@ def build_shortlist(frame, per_budget=3, block_table=None):
 
 
 def write_shortlist(entries, folder):
+    """Write settings JSONs into ``folder`` and the list to ``<folder>.json`` (shortlist -> shortlist.json)."""
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
     for entry in entries:
         if entry["settings"] is not None:
             (folder / f"{entry['name']}.json").write_text(
                 json.dumps(entry["settings"], indent=2) + "\n")
-    exp.write_json(folder.parent / "shortlist.json", entries)
+    exp.write_json(folder.parent / f"{folder.name}.json", entries)
 
 
-def plot_window_results(frame, out_dir):
+def plot_window_results(frame, out_dir, tag=""):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -449,7 +454,7 @@ def plot_window_results(frame, out_dir):
         ax.set_xlabel("window centre / depth")
         ax.set_ylabel("eps_err (lower = closer to original)")
         ax.legend(fontsize=7)
-    fig.savefig(out_dir / "window_depth_curve.png", dpi=160)
+    fig.savefig(out_dir / f"window_depth_curve{tag}.png", dpi=160)
     plt.close(fig)
     loops = frame[frame.kind == "loop"]
     fig, axes = plt.subplots(1, len(budgets), figsize=(5.2 * len(budgets), 4), constrained_layout=True,
@@ -464,15 +469,43 @@ def plot_window_results(frame, out_dir):
         ax.set_ylabel("window size M")
         ax.set_title(f"{int(discard)} discarded: log10 best eps_err")
         fig.colorbar(image, ax=ax)
-    fig.savefig(out_dir / "window_position_size_heatmap.png", dpi=160)
+    fig.savefig(out_dir / f"window_position_size_heatmap{tag}.png", dpi=160)
     plt.close(fig)
 
 
 # ----------------------------------------------------------------------- driver
 
 def _load_run_context(output, repo):
-    from team_pipeline.cli import load_run
-    return load_run(argparse.Namespace(output=output, repo=repo))
+    """Validated (root, protocol, config) for SCREENING tools.
+
+    Same checks as ``team_pipeline.cli.load_run`` except the runtime-environment
+    equality: screening writes only eps_err/diagnostic tables, never the comparable
+    manifests, latency or metric results the environment check protects. A
+    difference (e.g. an OS patch update) is reported, not fatal. The shared runner
+    (``team_pipeline.cli run``) keeps its strict check.
+    """
+    from team_pipeline.cli import configure_dit, environment, load_protocol, protocol_hash, sha256
+    from team_pipeline.experiment import shared_code_hash
+    root = Path(output)
+    protocol = load_protocol(root / "protocol.json")
+    config = json.loads((root / "config.json").read_text())
+    if config.get("shared_code_sha256") != shared_code_hash():
+        raise ValueError("Shared pipeline changed after preparation; create a new run")
+    if config["protocol_sha256"] != protocol_hash(protocol):
+        raise ValueError("Protocol changed after preparation; create a new run")
+    if any(config.get(k) != v for k, v in protocol["settings"].items()):
+        raise ValueError("Config settings changed after preparation; create a new run")
+    if configure_dit(repo) != config["dit_commit"]:
+        raise ValueError("DiT source changed after preparation")
+    if sha256(config["checkpoint"]) != config["checkpoint_sha256"]:
+        raise ValueError("Checkpoint changed after preparation")
+    recorded = json.loads((root / "environment.json").read_text())
+    current = environment(config["device"])
+    if current != recorded:
+        changed = sorted(k for k in set(recorded) | set(current) if recorded.get(k) != current.get(k))
+        _log(f"WARNING: runtime environment differs from the prepared run ({', '.join(changed)}); "
+             "screening results are not comparable manifests.")
+    return root, protocol, config
 
 
 def _states_for_screening(root, config, protocol, images, stride, batch_pairs=None):
@@ -534,18 +567,22 @@ def run_windows(args):
     buckets, bucket_count = assign_buckets(states["t"].numpy(), args.buckets)
     screen, _ = _load_screen(config, states, args.batch)
     depth = len(screen.base_blocks)
-    plan = sweep_plan(depth, args.discards, args.kept_sizes, args.loop_counts, args.a_stride)
+    plan = sweep_plan(depth, args.discards, args.kept_sizes, args.loop_counts, args.a_stride,
+                      args.a_min, args.protect_last, args.reduced)
     if args.max_configs:
         plan = plan[:args.max_configs]
+    # A tag keeps an extra scan (e.g. early windows) apart from the sweep that
+    # ``drive`` reads: nothing in the untagged shortlist/CSV/plots is overwritten.
+    tag = f"_{args.tag}" if args.tag else ""
     print(f"Screening {len(states['x'])} states, {bucket_count} buckets", flush=True)
-    frame = evaluate_plan(screen, plan, buckets, bucket_count, out / "window_sweep.csv")
+    frame = evaluate_plan(screen, plan, buckets, bucket_count, out / f"window_sweep{tag}.csv")
     frame = frame[frame.config_id.isin({p["config_id"] for p in plan})]
     block_path = out / "block_sensitivity.csv"
     block_table = pd.read_csv(block_path, index_col="block") if block_path.exists() else None
     entries = build_shortlist(frame, args.per_budget, block_table)
-    write_shortlist(entries, out / "shortlist")
-    plot_window_results(frame, out)
-    print(f"Shortlist ({len(entries)} entries) written to {out / 'shortlist.json'}")
+    write_shortlist(entries, out / f"shortlist{tag}")
+    plot_window_results(frame, out, tag)
+    print(f"Shortlist ({len(entries)} entries) written to {out / f'shortlist{tag}.json'}")
     for entry in entries:
         print(f"  {entry['name']:<34} budget={entry['budget']} eps_err={entry.get('eps_err', float('nan')):.4f}")
 
@@ -571,6 +608,10 @@ def main(argv=None):
             sub.add_argument("--a-stride", type=int, default=3, help="step between window start blocks")
             sub.add_argument("--per-budget", type=int, default=3, help="looped configs shortlisted per budget")
             sub.add_argument("--max-configs", type=int, help="debug: only the first N planned configs")
+            sub.add_argument("--a-min", type=int, default=4, help="first block a window may start at")
+            sub.add_argument("--protect-last", type=int, default=1, help="final blocks never in a window")
+            sub.add_argument("--reduced", action="store_true", help="fewer strategies per window")
+            sub.add_argument("--tag", default="", help="suffix for all outputs, keeps the base sweep intact")
     args = parser.parse_args(argv)
     {"blocks": run_blocks, "windows": run_windows}[args.command](args)
 
